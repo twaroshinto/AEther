@@ -32,7 +32,7 @@ void va_init(va_t *v)
         b[k] = 0;
     v->shape = 0.0f;
     v->cutoff = 0.6f;
-    v->reso = 0.3f;
+    v->fc_now = va_cutoff_hz(0.6f);
     v->rng = 0x2545F491u;
 }
 
@@ -42,7 +42,7 @@ void va_render(va_t *v, float *out, uint32_t n)
     float shape = fm_clampf(v->shape, 0.0f, 1.0f), mo = fm_clampf(v->motion, 0.0f, 1.0f);
     float morph = shape < 0.5f ? 2.0f * shape : 1.0f;              /* saw -> square */
     float pw = shape < 0.5f ? 0.5f : 0.5f - (shape - 0.5f) * 0.8f; /* square -> 10 % pulse */
-    float oct, fc, g, k, a1, a2, a3;
+    float oct;
     uint32_t i;
     /* MOTION, once a block: a sine LFO (0.03 .. 0.3 Hz) and a drift to a new random point every few seconds */
     v->lfo += (0.03f + 0.27f * mo) * (float)n / VA_FS;
@@ -56,30 +56,16 @@ void va_render(va_t *v, float *out, uint32_t n)
         v->drift_to = (float)(v->rng >> 8) / 16777216.0f * 2.0f - 1.0f;
     }
     v->drift += (v->drift_to - v->drift) * 0.002f;
-    oct = mo * (2.5f * fm_sinf(FM_TWO_PI * v->lfo) + 1.0f * v->drift);
-    fc = fm_clampf(va_cutoff_hz(v->cutoff) * fm_exp2f(oct), 30.0f, 0.45f * VA_FS);
-    g = fm_tanf(FM_PI * fc / VA_FS);
-    k = 2.0f - 1.94f * fm_clampf(v->reso, 0.0f, 1.0f);
-    a1 = 1.0f / (1.0f + g * (g + k));
-    a2 = g * a1;
-    a3 = g * a2;
+    oct = mo * (2.0f * fm_sinf(FM_TWO_PI * v->lfo) + 0.8f * v->drift);
+    v->fc_now = fm_clampf(va_cutoff_hz(v->cutoff) * fm_exp2f(oct), 40.0f, 0.45f * VA_FS);
     for (i = 0; i < n; i++) {
-        float p2 = v->ph + pw, s, sq, x, v1, v2, v3;
+        float p2 = v->ph + pw, s;
         if (p2 >= 1.0f)
             p2 -= 1.0f;
         s = saw(v->ph, dt);
-        sq = s - saw(p2, dt);            /* a pulse: two saws apart by its width */
-        x = (1.0f - morph) * s + morph * sq * 0.8f;
+        out[i] = 0.5f * ((1.0f - morph) * s + morph * 0.8f * (s - saw(p2, dt)));   /* a pulse: two saws apart */
         v->ph += dt;
         if (v->ph >= 1.0f)
             v->ph -= 1.0f;
-        v3 = x - v->ic2;                 /* the TPT state-variable filter (Zavalishin) */
-        v1 = a1 * v->ic1 + a2 * v3;
-        v2 = v->ic2 + a2 * v->ic1 + a3 * v3;
-        v->ic1 = 2.0f * v1 - v->ic1;
-        v->ic2 = 2.0f * v2 - v->ic2;
-        out[i] = 0.5f * fm_tanhf(0.9f * v2);
     }
-    v->ic1 = fm_flush(v->ic1);
-    v->ic2 = fm_flush(v->ic2);
 }

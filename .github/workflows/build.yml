@@ -16,13 +16,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install Pillow
+      - run: pip install Pillow numpy
       - run: sh tests/run.sh
-      - run: python3 app/tools/gen_source.py --out build/starter.h --wav-dir build/starter
       - uses: actions/upload-artifact@v4
         with:
           name: starter-samples
-          path: build/starter/*.wav
+          path: build/test/starter/*.wav
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -43,7 +42,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install Pillow
+      - run: pip install Pillow numpy
       - uses: actions/cache@v4
         with:
           path: ~/.jieli

@@ -80,6 +80,23 @@ i dekoduje tylko nowe próbki. Do początku bloku cofa się najwyżej o 255 pró
 (27–36 dB SNR) po rozmyciu fazy zmienia się w szeroki, cichy szum, a z PaulStretchem i tak wszystko staje się
 szumem o kształtowanym widmie.
 
+### Upscaling: SBR (zrobione w v0.3)
+
+Pytanie było, czy da się trzymać sample w niskiej rozdzielczości i „ulepszać” je przy graniu. Opcje:
+
+| Metoda | Co robi | Na FM-1 |
+|---|---|---|
+| **SBR** (HE-AAC, mp3PRO) | górne pasmo odtworzone z dolnego: transpozycja + obwiednia zapisana obok (setki bajtów/s) | **wybrane**: silnik i tak pracuje na widmie amplitud, fazy losuje, więc SBR kosztuje jedno przejście po binach na ramkę |
+| Ślepe rozszerzenie pasma | górne pasmo z ekstrapolacji nachylenia widma, bez dodatkowych danych | prostsze, gorsze dla dźwięków o nietypowym widmie; dobre jako zapas dla sampli bez obwiedni (na później) |
+| Bramka/odszumianie widmowe | odjęcie szacowanego szumu kwantyzacji ADPCM w każdym binie | tanie w naszym układzie; do rozważenia, jeśli szum ADPCM będzie słyszalny |
+| Sieci neuronowe (AudioSR, NU-Wave, vocodery) | najlepsza jakość | poza zasięgiem: miliony parametrów, a mamy 336 KB RAM-u i brak akceleratora |
+
+Jak to działa u nas: silnik zna częstotliwość sampla, więc wie, od którego binu (88 % Nyquista sampla) zaczyna
+się dziura. Każdy bin powyżej wypełnia wartością z najwyższej oktawy sampla (indeks dzielony przez 2, aż wpadnie w
+tę oktawę). Potem dla każdego z 8 pasm liczy energię wstawionego widma i skaluje je do energii z obwiedni,
+interpolowanej w czasie wg pozycji skanu. Energia pasma (suma kwadratów amplitud) w skali silnika nie zależy od
+rozmiaru FFT, więc obwiednię liczoną w Pythonie na oknie 2048 da się użyć przy każdym rozmiarze okna w silniku.
+
 ### B. Rozciąganie dźwięku z komputera na żywo (USB Audio) — następny krok
 
 FM-1 nie ma wejścia audio, ale fm1-base obsługuje **USB Audio OUT** (komputer gra przez FM-1). Dziś ten strumień

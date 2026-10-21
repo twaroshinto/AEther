@@ -38,6 +38,15 @@ enum { SMG_SRC_PAD, SMG_SRC_SAMPLE, SMG_SRC_LIVE, SMG_NSRC };
 enum { SMG_FMT_PCM16, SMG_FMT_ADPCM, SMG_NFMT };
 #define SMG_ADPCM_BLOCK 256u
 #define SMG_ADPCM_BYTES 132u
+/* SBR (spectral band replication, after HE-AAC): a sample kept at a low rate has the band above its Nyquist rebuilt
+ * from its own top octave, transposed up by octaves (so harmonics stay harmonics) and shaped to a stored envelope:
+ * SMG_SBR_BANDS energies a frame, log-spaced from SMG_SBR_LO(rate) to SMG_SBR_HI, one frame every env_hop source
+ * samples, each a byte: 2 (10 log10 E + 120), 0 = silence. E is the band's sum of squared magnitudes in the engine's
+ * own scale (Hann window, |X| 4 / N), which does not depend on N. Random phases make SBR's usual flaws (phase,
+ * transients) moot. */
+#define SMG_SBR_BANDS 8u
+#define SMG_SBR_HI 16000.0f
+#define SMG_SBR_LO(rate) (0.44f * (float)(rate))   /* 88 % of the sample's Nyquist: above its anti-alias filter */
 #define SMG_ADPCM_SIZE(len) (((len) + SMG_ADPCM_BLOCK - 1u) / SMG_ADPCM_BLOCK * SMG_ADPCM_BYTES)
 enum { SMG_SIZE_1K, SMG_SIZE_2K, SMG_SIZE_4K, SMG_SIZE_8K, SMG_NSIZE };
 
@@ -46,6 +55,8 @@ typedef struct {
     uint32_t len;                        /* samples */
     uint32_t rate;                       /* Hz (any: read with interpolation) */
     uint32_t fmt;
+    const uint8_t *env;                  /* SBR envelope (smg_set_env): env_frames x SMG_SBR_BANDS bytes; 0 = none */
+    uint32_t env_frames, env_hop;
 } smg_sample_t;
 
 typedef struct {                         /* the ADPCM reader: the block decoded so far */
@@ -76,6 +87,9 @@ typedef struct {
     float attack, release;               /* seconds */
     float width;                         /* 0 .. 1: mono .. two independent channels */
     float level;                         /* the output's gain */
+    float lp_hz;                         /* a resonant 24 dB/octave low-pass on the spectrum, the same for every
+                                          * key (the VA's filter); 0 = off */
+    float lp_reso;                       /* 0 .. 1 */
 } smg_params_t;
 
 typedef struct {
@@ -94,6 +108,9 @@ typedef struct {
     smg_adpcm_t ad;
     float *ring;                         /* LIVE: the newest SMG_NMAX samples pushed */
     uint32_t ring_w, live_at;            /* the next write; where this frame's window starts */
+    float load_scan;                     /* the scan where this frame's window was read (the SBR envelope's time) */
+    uint32_t sbr_edge[SMG_SBR_BANDS + 1u];   /* SBR: the bands' first bins (the last: the end) */
+    float sbr_p[SMG_SBR_BANDS];          /* the rebuilt bands' energies, then their gains */
     smg_voice_t voice[SMG_VOICES];
     float *work, *src, *acc, *play[2], *tail[2], *win, *qs;
     uint32_t n, hop, n_win;              /* the frame being built, its hop, the window's frame */
@@ -115,6 +132,7 @@ typedef struct {
 void smg_init(smg_t *e, float *ram);    /* ram: SMG_RAM_FLOATS floats; e->p gets defaults */
 void smg_defaults(smg_params_t *p);
 void smg_set_sample(smg_t *e, const void *data, uint32_t len, uint32_t rate, uint32_t fmt);   /* audio context */
+void smg_set_env(smg_t *e, const uint8_t *env, uint32_t frames, uint32_t hop);   /* after smg_set_sample */
 int32_t smg_sample_read(smg_t *e, uint32_t i);   /* the sample's value at i (decoded), for tests and screens */
 void smg_live_push(smg_t *e, const float *x, uint32_t n);   /* audio context: LIVE's newest samples, before render */
 void smg_note_on(smg_t *e, int32_t note, float vel);    /* audio context */

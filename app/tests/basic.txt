@@ -5,7 +5,7 @@ wait 600
 expect slot 2
 expect preset 0
 expect page 0
-expect src_len 88200
+expect src_len 44100
 shot boot.png
 # a chord on the keys: C4 E4 G4 (keys 7, 11, 14)
 key 7 down 100

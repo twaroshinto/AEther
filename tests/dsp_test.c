@@ -52,6 +52,7 @@ static void rec_run(rec_t *rc, float secs)
         if (live_va) {
             va_render(live_va, rc->l + rc->n, n);
             smg_live_push(&eng, rc->l + rc->n, n);
+            eng.p.lp_hz = live_va->fc_now;   /* the VA's filter: the engine's spectral low-pass */
         }
         smg_render(&eng, rc->l + rc->n, rc->r + rc->n, n);
         rc->n += n;
@@ -139,6 +140,7 @@ static void reset(void)
     smg_init(&eng, ram);
     live_va = 0;
     smg_set_sample(&eng, smg_builtin[0].data, smg_builtin[0].len, smg_builtin[0].rate, SMG_FMT_ADPCM);
+    smg_set_env(&eng, smg_builtin[0].env, smg_builtin[0].env_frames, smg_builtin[0].env_hop);
 }
 
 static void rec_free(rec_t *rc) { free(rc->l); free(rc->r); }
@@ -319,7 +321,7 @@ static void t_va(void)
     CHECK(fabs(f2 - 523.3) <= 8.0, "va: %.0f Hz an octave up, not 523", f2);
     CHECK(rms_db(&rc, 0.8, 1.8) > -30.0, "va: too quiet (%.1f dB)", rms_db(&rc, 0.8, 1.8));
     v.motion = 1.0f;                     /* everything moving, resonance at its peak, every shape */
-    v.reso = 1.0f;
+    eng.p.lp_reso = 1.0f;
     eng.p.size = SMG_SIZE_1K;
     smg_note_on(&eng, 36, 1.0f);
     smg_note_on(&eng, 84, 1.0f);
@@ -346,6 +348,7 @@ static void t_builtins(void)
         char name[64];
         reset();
         smg_set_sample(&eng, smg_builtin[b].data, smg_builtin[b].len, smg_builtin[b].rate, SMG_FMT_ADPCM);
+        smg_set_env(&eng, smg_builtin[b].env, smg_builtin[b].env_frames, smg_builtin[b].env_hop);
         eng.p.stretch = 20.0f;
         eng.p.attack = 0.3f;
         smg_note_on(&eng, 48, 0.8f);
@@ -415,6 +418,123 @@ static void t_adpcm(const char *pcm_img, const char *adpcm_img)
     free(a);
 }
 
+/* ---- SBR: a full-band sample against the same kept at 11025 Hz, with its envelope and without */
+typedef struct {
+    uint32_t magic, rate, len, crc, fmt, bytes, env_frames, env_hop;
+} img_hdr_t;
+
+static void fft(double *re, double *im, uint32_t n)   /* in place, radix 2 */
+{
+    uint32_t i, j = 0, len, k;
+    for (i = 1; i < n; i++) {
+        uint32_t bit = n >> 1;
+        for (; j & bit; bit >>= 1)
+            j ^= bit;
+        j |= bit;
+        if (i < j) {
+            double t = re[i]; re[i] = re[j]; re[j] = t;
+            t = im[i]; im[i] = im[j]; im[j] = t;
+        }
+    }
+    for (len = 2; len <= n; len <<= 1)
+        for (i = 0; i < n; i += len)
+            for (k = 0; k < len / 2; k++) {
+                double a = -2.0 * M_PI * k / len, c = cos(a), s_ = sin(a);
+                double ur = re[i + k], ui = im[i + k];
+                double vr = re[i + k + len / 2] * c - im[i + k + len / 2] * s_;
+                double vi = re[i + k + len / 2] * s_ + im[i + k + len / 2] * c;
+                re[i + k] = ur + vr; im[i + k] = ui + vi;
+                re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+            }
+}
+
+#define NB3 10                           /* bands of a sixth of an octave from 5 to 16 kHz (what SBR rebuilds) */
+static void sixth_octaves(const rec_t *rc, double t0, double t1, double *db)
+{
+    static double re[8192], im[8192];
+    double e[NB3] = {0};
+    uint32_t a = (uint32_t)(t0 * SMG_FS), b = (uint32_t)(t1 * SMG_FS), i, k, nb;
+    for (i = a; i + 8192u <= b; i += 4096u) {
+        for (k = 0; k < 8192u; k++) {
+            double w = 0.5 - 0.5 * cos(2.0 * M_PI * k / 8192.0);
+            re[k] = (rc->l[i + k] + rc->r[i + k]) * w;
+            im[k] = 0.0;
+        }
+        fft(re, im, 8192u);
+        for (k = 1; k < 4096u; k++) {
+            double f = k * (double)SMG_FS / 8192.0;
+            for (nb = 0; nb < NB3; nb++)
+                if (f >= 5000.0 * pow(3.2, (double)nb / NB3) && f < 5000.0 * pow(3.2, (nb + 1.0) / NB3))
+                    e[nb] += re[k] * re[k] + im[k] * im[k];
+        }
+    }
+    for (nb = 0; nb < NB3; nb++)
+        db[nb] = 10.0 * log10(e[nb] + 1e-20);
+}
+
+static int load_img(const char *path, uint8_t **blob, img_hdr_t *h)
+{
+    long n = 0;
+    *blob = slurp(path, &n);
+    if (!*blob || n < 0x1000)
+        return 0;
+    memcpy(h, *blob, sizeof *h);
+    smg_set_sample(&eng, *blob + 0x1000, h->len, h->rate, h->fmt);
+    if (h->env_frames)
+        smg_set_env(&eng, *blob + 0x1000 + (h->fmt == SMG_FMT_ADPCM ? SMG_ADPCM_SIZE(h->len) : 2u * h->len),
+                    h->env_frames, h->env_hop);
+    return 1;
+}
+
+static double sbr_render(const char *path, double *db, const char *wav)
+{
+    rec_t rc = {0};
+    uint8_t *blob;
+    img_hdr_t h;
+    double all;
+    smg_init(&eng, ram);
+    if (!load_img(path, &blob, &h)) {
+        CHECK(0, "sbr: no image %s (tests/run.sh makes it)", path);
+        return 0.0;
+    }
+    eng.p.stretch = 6.0f;
+    eng.p.attack = 0.05f;
+    smg_note_on(&eng, 60, 0.8f);
+    rec_run(&rc, 5.0f);
+    sixth_octaves(&rc, 0.5, 5.0, db);
+    all = rms_db(&rc, 0.5, 5.0);
+    check_sane(&rc, path);
+    CHECK(eng.late == 0, "sbr: %u frames late (%s)", eng.late, path);
+    rec_wav(&rc, wav);
+    rec_free(&rc);
+    free(blob);
+    return all;
+}
+
+static void t_sbr(const char *ref, const char *sbr, const char *nosbr)
+{
+    double r[NB3], a[NB3], b[NB3], da = 0.0, db = 0.0;
+    uint32_t i;
+    printf("sbr: STRING kept at 11025 Hz, with its SBR envelope and without, against the full band (5-16 kHz)\n");
+    sbr_render(ref, r, "sbr_ref.wav");
+    sbr_render(sbr, a, "sbr_on.wav");
+    sbr_render(nosbr, b, "sbr_off.wav");
+    printf("  sixth octaves, dB against the full band:\n   with SBR ");
+    for (i = 0; i < NB3; i++) {
+        printf(" %+5.1f", a[i] - r[i]);
+        da += (a[i] - r[i]) * (a[i] - r[i]);
+        db += (b[i] - r[i]) * (b[i] - r[i]);
+    }
+    printf("\n   without  ");
+    for (i = 0; i < NB3; i++)
+        printf(" %+5.1f", b[i] - r[i]);
+    da = sqrt(da / NB3);
+    db = sqrt(db / NB3);
+    printf("\n  log-spectral distance: with SBR %.1f dB, without %.1f dB\n", da, db);
+    CHECK(da < 6.0, "sbr: %.1f dB from the full band", da);
+    CHECK(db > 3.0 * da, "sbr: no better than without (%.1f against %.1f dB)", da, db);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1)
@@ -428,6 +548,8 @@ int main(int argc, char **argv)
     t_builtins();
     if (argc > 3)
         t_adpcm(argv[2], argv[3]);
+    if (argc > 6)
+        t_sbr(argv[4], argv[5], argv[6]);
     printf(fails ? "dsp_test: %d FAILED\n" : "dsp_test: all passed\n", fails);
     return fails != 0;
 }

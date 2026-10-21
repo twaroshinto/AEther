@@ -38,7 +38,9 @@ static const pdef_t PDEF[NP] = {
 };
 
 /* the sources: PAD, VA, the built-in samples (smg_builtin[], SLOT_SMP0 on), USER */
-enum { SLOT_PAD, SLOT_VA, SLOT_SMP0, SLOT_CHOIR = SLOT_SMP0, SLOT_GLASS, SLOT_STRING, SLOT_WIND };
+enum { SLOT_PAD, SLOT_VA, SLOT_SMP0, SLOT_CHOIR = SLOT_SMP0, SLOT_GLASS, SLOT_STRING, SLOT_WIND, SLOT_PIANO,
+       SLOT_BOWED, SLOT_FLUTE, SLOT_ORGAN, SLOT_KALIMBA, SLOT_BRASS, SLOT_DRONE, SLOT_RAIN, SLOT_BIRDS,
+       SLOT_WHISPER, SLOT_GAMELAN, SLOT_TAPE };   /* in gen_source.py's order */
 #define SLOT_USER (SLOT_SMP0 + SMG_NBUILTIN)
 #define NSLOT (SLOT_USER + 1u)
 static int slot_sample(uint32_t s) { return s >= SLOT_SMP0; }   /* a sample, built-in or loaded */
@@ -67,10 +69,16 @@ static const preset_t PRESETS[] = {
     {"ORGAN DUST", SLOT_PAD,    {52,   0,  0, 2, 50, 18,  0, 100, 50, 70, 80, 96, 64, 30,  0,  0, 80, 40, 30}},
     {"BELL CLOUD", SLOT_PAD,    {52,   0,  0, 3, 90, 30, 90,  0, 60, 96, 110, 90, 70,  0, 20,  0, 80, 40, 30}},
     {"ANALOG MIST", SLOT_VA,    {52,   0,  0, 3, 64, 50,  0,  0, 80, 90, 110, 96, 64, 30,  0,  0, 72, 40, 45}},
-    {"RESO SWEEP", SLOT_VA,     {52,   0,  0, 2, 64, 50,  0,  0, 60, 85, 100, 90, 64,  0,  0, 64, 55, 105, 90}},
+    {"RESO SWEEP", SLOT_VA,     {52,   0,  0, 2, 64, 50,  0,  0, 60, 85, 100, 90, 64,  0,  0, 64, 60, 90, 90}},
     {"GLASS RAIN", SLOT_GLASS,  {60,   0, 10, 3, 64, 50,  0,  0, 70, 96, 120, 90, 70,  0, 40,  0, 80, 40, 30}},
     {"HARP DREAM", SLOT_STRING, {45,   0,  0, 3, 64, 50,  0,  0, 60, 90, 120, 96, 64, 20,  0,  0, 80, 40, 30}},
     {"WIND TUNNEL", SLOT_WIND,  {70,   0, 50, 3, 64, 50,  0,  0, 90, 96, 127, 100, 50, 0,  0,  0, 80, 40, 30}},
+    {"FELT DREAM", SLOT_PIANO,  {58,   0,  0, 3, 64, 50,  0,  0, 70, 96, 110, 96, 56, 20,  0,  0, 80, 40, 30}},
+    {"CELLO SEA", SLOT_BOWED,   {64,   0, 20, 3, 64, 50,  0,  0, 90, 100, 120, 96, 60, 30, 0,  0, 80, 40, 30}},
+    {"TANPURA", SLOT_DRONE,     {50,   0,  0, 3, 64, 50,  0,  0, 60, 100, 110, 96, 46, 20, 0,  0, 80, 40, 30}},
+    {"RAIN ROOM", SLOT_RAIN,    {75,  10, 40, 3, 64, 50,  0,  0, 80, 96, 127, 96, 50,  0,  0,  0, 80, 40, 30}},
+    {"DAWN", SLOT_BIRDS,        {70,   0, 30, 3, 64, 50,  0,  0, 90, 100, 127, 90, 60,  0, 30,  0, 80, 40, 30}},
+    {"TAPE MEMORY", SLOT_TAPE,  {60,   0, 10, 3, 64, 50,  0,  0, 80, 96, 100, 96, 52, 30,  0,  0, 80, 40, 30}},
     {"GRAIN", SLOT_CHOIR,       {30,  20, 20, 0, 64, 50,  0,  0, 20, 60, 70, 96, 64,  0,  0,  0, 80, 40, 30}},
     {"FROZEN", SLOT_CHOIR,      {127, 64, 90, 3, 64, 50,  0,  0, 100, 110, 127, 96, 50, 20, 30, 0, 80, 40, 30}},
     {"DEEP", SLOT_PAD,          {52,   0,  0, 3, 25, 80,  0, 30, 95, 105, 100, 100, 40, 80, 0,  0, 80, 40, 30}},
@@ -110,8 +118,9 @@ static void apply(void)
     va_on = set.slot == SLOT_VA;
     va.shape = unit(v[P_SHAPE]);
     va.cutoff = unit(v[P_CUTOFF]);
-    va.reso = unit(v[P_RESO]);
     va.motion = unit(v[P_MOTION]);
+    p->lp_hz = va_on ? va_cutoff_hz(va.cutoff) : 0.0f;   /* (the render follows MOTION: va.fc_now) */
+    p->lp_reso = unit(v[P_RESO]);
     p->size = v[P_SIZE];
     p->freeze = freeze;
     p->stretch = stretch_of(v[P_STRETCH]);
@@ -128,14 +137,25 @@ static void apply(void)
     p->tilt = 2.0f * unit(v[P_TILT]) - 1.0f;
     p->sub = unit(v[P_SUB]);
     p->shimmer = unit(v[P_SHIMMER]);
+    if (va_on)                           /* VA: its harmonics softened into narrow bands, as PADsynth's are */
+        p->spread = 0.22f;
+}
+
+static uint32_t audio_bytes(uint32_t len, uint32_t fmt)
+{
+    return fmt == SMG_FMT_ADPCM ? SMG_ADPCM_SIZE(len) : fmt == SMG_FMT_PCM16 ? 2u * len : 0u;
+}
+static int sample_size_ok(uint32_t len, uint32_t rate, uint32_t fmt, uint32_t bytes, uint32_t frames, uint32_t hop)
+{
+    return len && len <= SMP_MAX_BYTES * 2u && rate >= 4000u && rate <= 96000u && bytes <= SMP_MAX_BYTES &&
+           audio_bytes(len, fmt) && bytes == audio_bytes(len, fmt) + frames * SMG_SBR_BANDS && (!frames || hop);
 }
 
 /* the loaded sample in the flash, checked: its header, 0 = none */
 static const smp_hdr_t *user_sample(void)
 {
     const smp_hdr_t *h = (const smp_hdr_t *)plat_data(SMP_HDR_OFF);
-    if (!h || h->magic != SMP_MAGIC || !h->len || h->bytes > SMP_MAX_BYTES || h->rate < 4000u || h->rate > 96000u ||
-        h->bytes != (h->fmt == SMG_FMT_ADPCM ? SMG_ADPCM_SIZE(h->len) : h->fmt == SMG_FMT_PCM16 ? 2u * h->len : 0u))
+    if (!h || h->magic != SMP_MAGIC || !sample_size_ok(h->len, h->rate, h->fmt, h->bytes, h->env_frames, h->env_hop))
         return 0;
     return h;
 }
@@ -159,10 +179,13 @@ static void source_set(uint32_t slot)    /* audio interrupt: a sample source's s
 {
     const smp_hdr_t *h = slot == SLOT_USER && !uploading ? user_sample() : 0;
     const smg_builtin_t *b = &smg_builtin[slot >= SLOT_SMP0 && slot < SLOT_USER ? slot - SLOT_SMP0 : 0u];
-    if (h)
+    if (h) {
         smg_set_sample(&eng, plat_data(SMP_DATA_OFF), h->len, h->rate, h->fmt);
-    else if (slot_sample(slot) || !eng.smp.len)
+        smg_set_env(&eng, plat_data(SMP_DATA_OFF) + audio_bytes(h->len, h->fmt), h->env_frames, h->env_hop);
+    } else if (slot_sample(slot) || !eng.smp.len) {
         smg_set_sample(&eng, b->data, b->len, b->rate, SMG_FMT_ADPCM);
+        smg_set_env(&eng, b->env, b->env_frames, b->env_hop);
+    }
 }
 
 /* ---------------------------------------------------------------- MIDI in --- */
@@ -233,6 +256,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         if (va_on) {                     /* VA: its newest block into the LIVE ring first */
             va_render(&va, buf_l, m);
             smg_live_push(&eng, buf_l, m);
+            eng.p.lp_hz = va.fc_now;
         }
         smg_render(&eng, buf_l, buf_r, m);
         for (i = 0; i < m; i++) {
@@ -290,13 +314,15 @@ void app_init(void)
 /* ------------------------------------------------------------- sample load --- */
 /* SysEx F0 7D 53 4D cmd ... F7 (tools/smuga_load.py); every command answered F0 7D 53 4D 7F cmd status F7.
  *   01 BEGIN  len (samples, 4 x 7 bits), rate (3 x 7 bits), format (SMG_FMT_*: 0 PCM16, 1 ADPCM), bytes (4 x 7
- *             bits: 2 len, or SMG_ADPCM_SIZE(len)), name (up to 15 ASCII)
+ *             bits: the samples' 2 len or SMG_ADPCM_SIZE(len), plus the envelope's), the SBR envelope's frames (3 x 7
+ *             bits) and hop (2 x 7 bits; 0 0: none), name (up to 15 ASCII)
  *   02 DATA   byte offset (4 x 7 bits), then the bytes packed 7 in 8 (the first of each 8 holds the next seven's top
  *             bits); in order, at most 512 bytes a message
  *   03 END    CRC-32 of the bytes (5 x 7 bits): checked against the flash, then the header written
  * Status: 0 ok, 1 not now, 2 too long, 3 out of order, 4 the flash refused, 5 CRC mismatch */
 static struct {
     uint32_t len, rate, fmt, bytes, next;   /* samples; Hz; SMG_FMT_*; the data's size; the next byte expected */
+    uint32_t env_frames, env_hop;
     char name[16];
     uint8_t buf[512];
 } up;
@@ -332,17 +358,18 @@ static void up_answer(uint32_t cmd, uint32_t status)
 static uint32_t up_begin(const uint8_t *p, uint32_t n)
 {
     uint32_t k;
-    if (n < 16u)
+    if (n < 21u)
         return 1;
     up.len = rd7(p + 4, 4);
     up.rate = rd7(p + 8, 3);
     up.fmt = p[11];
     up.bytes = rd7(p + 12, 4);
-    if (!up.len || up.bytes > SMP_MAX_BYTES || up.rate < 4000u || up.rate > 96000u ||
-        up.bytes != (up.fmt == SMG_FMT_ADPCM ? SMG_ADPCM_SIZE(up.len) : up.fmt == SMG_FMT_PCM16 ? 2u * up.len : 0u))
+    up.env_frames = rd7(p + 16, 3);
+    up.env_hop = rd7(p + 19, 2);
+    if (!sample_size_ok(up.len, up.rate, up.fmt, up.bytes, up.env_frames, up.env_hop))
         return 2;
-    for (k = 0; k < 15u && 16u + k < n; k++)
-        up.name[k] = (char)p[16u + k];
+    for (k = 0; k < 15u && 21u + k < n; k++)
+        up.name[k] = (char)p[21u + k];
     up.name[k] = 0;
     uploading = 1;
     if (set.slot == SLOT_USER)
@@ -400,6 +427,8 @@ static uint32_t up_end(const uint8_t *p, uint32_t n)
     h.crc = want;
     h.fmt = up.fmt;
     h.bytes = up.bytes;
+    h.env_frames = up.env_frames;
+    h.env_hop = up.env_hop;
     for (k = 0; k < 16u; k++)
         h.name[k] = up.name[k];
     if (plat_data_write(SMP_HDR_OFF, &h, sizeof h))

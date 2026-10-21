@@ -7,6 +7,8 @@
  *   AREV   bit-reversal permutation             } the forward FFT
  *   AFFT   radix-2 stages                       }
  *   MAG    the magnitudes, into src
+ *   SBR1   a low-rate sample with an envelope: the band above its Nyquist rebuilt from its top octave  } SBR
+ *   SBR2   each rebuilt band scaled to the envelope's energy at the scan                             }
  *   SPR1   SPREAD: prefix sums of src           } blur: each bin the mean of a band that widens with frequency
  *   SPR2   the blurred magnitudes               }
  *   CLEAR  the output magnitudes to zero
@@ -21,7 +23,7 @@
 #include "smuga.h"
 #include "fastmath.h"
 
-enum { S_WIN, S_LOAD, S_AREV, S_AFFT, S_MAG, S_SPR1, S_SPR2, S_CLEAR, S_VOICE, S_PHASE, S_SREV, S_SFFT, S_DONE };
+enum { S_WIN, S_LOAD, S_AREV, S_AFFT, S_MAG, S_SBR1, S_SBR2, S_SPR1, S_SPR2, S_CLEAR, S_VOICE, S_PHASE, S_SREV, S_SFFT, S_DONE };
 #define CHUNK 256u                       /* items per step */
 #define QN (SMG_NMAX / 4u)               /* the quarter sine's last index */
 #define DISP_LO_LOG2 5.321928f           /* log2(40 Hz) */
@@ -170,6 +172,12 @@ static uint32_t pad_units(const smg_t *e, float ratio)
     return u;
 }
 
+static int sbr_on(const smg_t *e)        /* a sample with an envelope whose band ends well below SMG_SBR_HI */
+{
+    return e->fp.source == SMG_SRC_SAMPLE && e->smp.env && e->smp.env_frames && e->smp.env_hop &&
+           SMG_SBR_LO(e->smp.rate) < 0.9f * SMG_SBR_HI;
+}
+
 static int needs_analysis(const smg_t *e)
 {
     return ((e->fp.source == SMG_SRC_SAMPLE && e->smp.len) || e->fp.source == SMG_SRC_LIVE) &&
@@ -187,7 +195,7 @@ static uint32_t bound(const smg_t *e)
     if (e->n_win != n)
         b += 4u * half;
     if (needs_analysis(e))
-        b += 3u * n + half * lg + half + (e->fp.spread > 0.001f ? n : 0u);
+        b += 3u * n + half * lg + half + (e->fp.spread > 0.001f ? n : 0u) + (sbr_on(e) ? 2u * n : 0u);
     for (v = 0; v < SMG_VOICES; v++) {
         const smg_voice_t *vc = &e->voice[v];
         float r;
@@ -312,6 +320,8 @@ static void load_step(smg_t *e)
     uint32_t n = e->n, k = e->i, end = k + CHUNK < n ? k + CHUNK : n, len = e->smp.len;
     float rs = (float)e->smp.rate / (float)SMG_FS, flen = (float)len;
     float t = e->scan - (float)(n / 2u) * rs + (float)k * rs;
+    if (k == 0)
+        e->load_scan = e->scan;
     if (e->fp.source == SMG_SRC_LIVE) {
         if (k == 0)
             e->live_at = e->ring_w - n;
@@ -367,8 +377,94 @@ static void mag_step(smg_t *e)
     if (end > half) {
         e->src_ok = 1;
         scan_advance(e);
-        enter(e, e->fp.spread > 0.001f ? S_SPR1 : S_CLEAR);
+        enter(e, sbr_on(e) ? S_SBR1 : e->fp.spread > 0.001f ? S_SPR1 : S_CLEAR);
     }
+}
+
+/* SBR1: the band edges, then each bin above the sample's band from its top octave (k halved until it falls in
+ * [kc / 2, kc)), the bands' energies summed */
+static void sbr_fill_step(smg_t *e)
+{
+    uint32_t half = e->n / 2u, k, end, b;
+    float binhz = (float)SMG_FS / (float)e->n, kc;
+    if (e->i == 0) {
+        float lo = SMG_SBR_LO(e->smp.rate), hi = SMG_SBR_HI;
+        for (b = 0; b <= SMG_SBR_BANDS; b++) {
+            uint32_t edge = (uint32_t)(lo * fm_exp2f(fm_log2f(hi / lo) * (float)b / (float)SMG_SBR_BANDS) / binhz);
+            e->sbr_edge[b] = edge < half ? edge : half;
+        }
+        for (b = 0; b < SMG_SBR_BANDS; b++)
+            e->sbr_p[b] = 0.0f;
+        e->i = e->sbr_edge[0];
+        e->j = 0;
+    }
+    kc = (float)e->sbr_edge[0];
+    k = e->i;
+    end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u;
+    for (; k < end; k++) {
+        float idx = (float)k, v = 0.0f, fr;
+        uint32_t i0;
+        if (k < e->sbr_edge[SMG_SBR_BANDS] && kc >= 4.0f) {
+            while (idx >= kc)
+                idx *= 0.5f;
+            i0 = (uint32_t)idx;
+            fr = idx - (float)i0;
+            v = (float)(i0 + 1u) < kc ? e->src[i0] + fr * (e->src[i0 + 1u] - e->src[i0]) : e->src[i0];
+            while (e->j + 1u < SMG_SBR_BANDS && k >= e->sbr_edge[e->j + 1u])
+                e->j++;
+            e->sbr_p[e->j] += v * v;
+        }
+        e->src[k] = v;
+    }
+    e->units += 2u * (end - e->i);
+    e->i = end;
+    if (end > half)
+        enter(e, S_SBR2);
+}
+
+/* SBR2: the gains, from the envelope at the scan (interpolated between its frames, in dB), then applied */
+static void sbr_gain_step(smg_t *e)
+{
+    uint32_t k, end, b, half = e->n / 2u;
+    if (e->i == 0) {
+        const smg_sample_t *sm = &e->smp;
+        float pos = e->load_scan / (float)sm->env_hop, fr;
+        uint32_t f0;
+        if (pos < 0.0f)
+            pos = 0.0f;
+        f0 = (uint32_t)pos;
+        if (f0 >= sm->env_frames - 1u) {
+            f0 = sm->env_frames - 1u;
+            fr = 0.0f;
+        } else {
+            fr = pos - (float)f0;
+        }
+        for (b = 0; b < SMG_SBR_BANDS; b++) {
+            float qa = (float)sm->env[f0 * SMG_SBR_BANDS + b];
+            float qb = (float)sm->env[(f0 + (fr > 0.0f ? 1u : 0u)) * SMG_SBR_BANDS + b];
+            float q = qa + fr * (qb - qa), want, g = 0.0f;
+            if (q > 0.5f && e->sbr_p[b] > 1e-24f) {
+                want = fm_exp2f((q * 0.5f - 120.0f) * 0.33219281f);   /* 10^(dB / 10) */
+                g = fm_sqrtf(want / e->sbr_p[b]);
+                if (g > 100.0f)
+                    g = 100.0f;
+            }
+            e->sbr_p[b] = g;
+        }
+        e->i = e->sbr_edge[0];
+        e->j = 0;
+    }
+    k = e->i;
+    end = k + CHUNK < e->sbr_edge[SMG_SBR_BANDS] ? k + CHUNK : e->sbr_edge[SMG_SBR_BANDS];
+    for (; k < end; k++) {
+        while (e->j + 1u < SMG_SBR_BANDS && k >= e->sbr_edge[e->j + 1u])
+            e->j++;
+        e->src[k] *= e->sbr_p[e->j];
+    }
+    e->units += end > e->i ? end - e->i : 0u;
+    e->i = end;
+    if (end >= e->sbr_edge[SMG_SBR_BANDS] || end >= half)
+        enter(e, e->fp.spread > 0.001f ? S_SPR1 : S_CLEAR);
 }
 
 /* SPREAD: prefix sums of src into the (now free) FFT buffer, then each bin the mean of [k - w, k + w] */
@@ -518,6 +614,8 @@ static void phase_step(smg_t *e)
     uint32_t n = e->n, half = n / 2u, k = e->i, end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u;
     float binhz = (float)SMG_FS / (float)n, lb = fm_log2f(binhz), tilt = fm_clampf(e->fp.tilt, -1.0f, 1.0f);
     float t500 = lb - 8.965784f;         /* log2(bin Hz / 500) */
+    float lp_x = e->fp.lp_hz > 0.0f ? binhz / e->fp.lp_hz : 0.0f;   /* f / fc a bin */
+    float lp_iq2 = 1.0f / ((0.55f + 7.5f * e->fp.lp_reso * e->fp.lp_reso) * (0.55f + 7.5f * e->fp.lp_reso * e->fp.lp_reso));
     for (; k < end; k++) {
         float m, lk, ar, ai, br, bi;
         uint32_t t1, t2, b;
@@ -534,6 +632,10 @@ static void phase_step(smg_t *e)
         lk = fm_log2f((float)k);
         if (tilt != 0.0f)
             m *= fm_exp2f(tilt * (lk + t500));
+        if (lp_x > 0.0f) {               /* two 2-pole sections: one resonant (Q 0.55 .. 8), one Butterworth */
+            float x = lp_x * (float)k, x2 = x * x, d = (1.0f - x2) * (1.0f - x2);
+            m *= fm_rsqrtf(d + x2 * lp_iq2) * fm_rsqrtf(d + 2.0f * x2);
+        }
         bi_ = (int32_t)((lk + lb - DISP_LO_LOG2) * ((float)SMG_DISP / DISP_SPAN_LOG2));
         if (bi_ >= 0 && bi_ < (int32_t)SMG_DISP) {
             b = (uint32_t)bi_;
@@ -589,6 +691,8 @@ static void step(smg_t *e)
             enter(e, S_MAG);
         break;
     case S_MAG: mag_step(e); break;
+    case S_SBR1: sbr_fill_step(e); break;
+    case S_SBR2: sbr_gain_step(e); break;
     case S_SPR1:
     case S_SPR2: spread_step(e); break;
     case S_CLEAR: clear_step(e); break;
@@ -770,11 +874,22 @@ void smg_set_sample(smg_t *e, const void *data, uint32_t len, uint32_t rate, uin
     e->smp.len = data ? len : 0u;
     e->smp.rate = rate ? rate : SMG_FS;
     e->smp.fmt = fmt < SMG_NFMT ? fmt : SMG_FMT_PCM16;
+    e->smp.env = 0;                      /* (smg_set_env gives the new one its own) */
+    e->smp.env_frames = 0;
     e->ad.blk = 0xFFFFFFFFu;
     e->src_ok = 0;
     e->scan = e->smp.len ? fm_clampf(e->p.position, 0.0f, 1.0f) * (float)(e->smp.len - 1u) : 0.0f;
     e->last_position = -1.0f;
     e->units_bound = bound(e);           /* the frame under way may have to analyse now */
+}
+
+void smg_set_env(smg_t *e, const uint8_t *env, uint32_t frames, uint32_t hop)
+{
+    e->smp.env = frames && hop ? env : 0;
+    e->smp.env_frames = env ? frames : 0u;
+    e->smp.env_hop = hop;
+    e->src_ok = 0;
+    e->units_bound = bound(e);
 }
 
 void smg_defaults(smg_params_t *p)
@@ -797,6 +912,8 @@ void smg_defaults(smg_params_t *p)
     p->release = 3.0f;
     p->width = 0.8f;
     p->level = 1.0f;
+    p->lp_hz = 0.0f;
+    p->lp_reso = 0.0f;
 }
 
 void smg_init(smg_t *e, float *ram)

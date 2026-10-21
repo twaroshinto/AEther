@@ -3,9 +3,12 @@
 # Copyright (C) 2026 fm1-smuga contributors
 """Load a sample into SMUGA on an FM-1 over USB-MIDI (SysEx), for its USER source.
 
-  smuga_load.py SOUND.wav                  load it: mono, 22050 Hz, IMA ADPCM (4 bits a sample), up to 24 s
-  smuga_load.py SOUND.wav --pcm16          16-bit instead: no ADPCM hiss, a quarter of the length (6.3 s)
-  smuga_load.py SOUND.wav --rate 44100     full bandwidth, half the length (12 s; 3.1 s with --pcm16)
+  smuga_load.py SOUND.wav                  load it: mono, 22050 Hz, IMA ADPCM (4 bits a sample), up to 24 s;
+                                           the band above 9.7 kHz rebuilt on the FM-1 (SBR) from a small envelope
+  smuga_load.py SOUND.wav --rate 11025     twice as long (48 s): kept to 4.9 kHz, the rest rebuilt by SBR
+  smuga_load.py SOUND.wav --pcm16          16-bit instead: no ADPCM hiss, a quarter of the length
+  smuga_load.py SOUND.wav --rate 44100     the full band kept, no SBR (12 s; 3.1 s with --pcm16)
+  smuga_load.py SOUND.wav --no-sbr         no envelope: the band above the kept rate's Nyquist stays empty
   smuga_load.py SOUND.wav --start 1.5 --secs 4   a part of it
   smuga_load.py SOUND.wav --image OUT.bin  no FM-1: the flash image instead (header sector + data), for the host
                                            simulator's `data OUT.bin 0x97000` (tests)
@@ -14,11 +17,13 @@
                                            messages) or the host simulator's `sysex OUT.syx`
   smuga_load.py --list                     the MIDI ports
 
-Needs mido with python-rtmidi (pip install mido python-rtmidi) to talk to the FM-1. Reads WAV files (8, 16, 24 or
+Needs numpy (resampling, the SBR envelope), and mido with python-rtmidi to talk to the FM-1
+(pip install numpy mido python-rtmidi). Reads WAV files (8, 16, 24 or
 32-bit PCM, any channels) with the standard library; other formats: convert first (e.g. ffmpeg -i in.mp3 out.wav).
 
 The protocol (app/app.c, "sample load"): F0 7D 53 4D cmd ... F7, each command answered F0 7D 53 4D 7F cmd status F7.
-BEGIN (01) len rate name, DATA (02) offset + 7-in-8 packed bytes, END (03) CRC-32."""
+BEGIN (01) len rate format bytes env_frames env_hop name, DATA (02) offset + 7-in-8 packed bytes (the samples, then
+the SBR envelope), END (03) CRC-32."""
 import argparse
 import struct
 import sys
@@ -29,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app" / "tools"))
 import smg_adpcm  # noqa: E402
+import smg_sbr  # noqa: E402
 
 HDR_SECTOR = 0x1000
 MAX_BYTES = 0xDC000 - 0x98000          # app.h SMP_MAX_BYTES
@@ -59,45 +65,26 @@ def read_wav(path):
     return frames, rate
 
 
-def resample(x, rate, to):
-    if rate == to:
-        return x
-    # a gentle low-pass (a 2nd-order running mean) when going down, then linear interpolation
-    if to < rate:
-        k = max(1, int(rate / to))
-        y, s = [], 0.0
-        for i, v in enumerate(x):
-            s += v
-            if i >= k:
-                s -= x[i - k]
-            y.append(s / min(i + 1, k))
-        x = y
-    n = int(len(x) * to / rate)
-    out = []
-    for i in range(n):
-        t = i * rate / to
-        i0 = int(t)
-        f = t - i0
-        a = x[min(i0, len(x) - 1)]
-        b = x[min(i0 + 1, len(x) - 1)]
-        out.append(a + (b - a) * f)
-    return out
-
-
 def prepare(a):
+    """(samples, bytes: the audio then the envelope, env_frames, env_hop)"""
+    import numpy as np
     x, rate = read_wav(a.wav)
-    x = x[int(a.start * rate):]
+    x = np.asarray(x[int(a.start * rate):])
     if a.secs:
         x = x[:int(a.secs * rate)]
-    x = resample(x, rate, a.rate)
-    x = x[:MAX_BYTES // 2 if a.pcm16 else MAX_BYTES // smg_adpcm.BYTES * smg_adpcm.BLOCK]
-    peak = max((abs(v) for v in x), default=0.0) or 1.0
-    g = 0.95 / peak if a.normalize else 1.0
-    pcm = [max(-32768, min(32767, int(round(v * g * 32767)))) for v in x]
+    peak = float(np.max(np.abs(x))) if len(x) else 0.0
+    x = x * (0.95 / peak if a.normalize and peak > 0 else 1.0)
+    room = MAX_BYTES - 8192                       # (8 KB kept for the envelope: 48 s at 11025 Hz take 7.7 KB)
+    keep = smg_sbr.resample(x, rate, a.rate)
+    keep = keep[:room // 2 if a.pcm16 else room // smg_adpcm.BYTES * smg_adpcm.BLOCK]
+    pcm = [int(v) for v in np.clip(np.round(keep * 32767), -32768, 32767)]
     data = struct.pack(f"<{len(pcm)}h", *pcm) if a.pcm16 else smg_adpcm.encode(pcm)
-    print(f"{a.wav}: {len(x)} samples at {a.rate} Hz ({len(x) / a.rate:.2f} s), peak "
-          f"{20 * __import__('math').log10(peak):.1f} dBFS, {'PCM16' if a.pcm16 else 'ADPCM'} {len(data)} B")
-    return len(pcm), data
+    hop = smg_sbr.env_hop(a.rate)
+    env = b"" if a.no_sbr else smg_sbr.envelope(x[:int(len(pcm) * rate / a.rate) + 1], rate, a.rate, hop)
+    print(f"{a.wav}: {len(pcm)} samples at {a.rate} Hz ({len(pcm) / a.rate:.2f} s), peak "
+          f"{20 * np.log10(peak or 1e-9):.1f} dBFS, {'PCM16' if a.pcm16 else 'ADPCM'} {len(data)} B"
+          f"{f', SBR envelope {len(env)} B' if env else ''}")
+    return len(pcm), data + env, len(env) // smg_sbr.BANDS, hop if env else 0
 
 
 def name_of(a):
@@ -123,8 +110,9 @@ def fmt_of(a):
 
 
 def image(a, smp):
-    n, data = smp
-    hdr = struct.pack("<IIIIII16s", 0x32534D53, a.rate, n, zlib.crc32(data), fmt_of(a), len(data), name_of(a))
+    n, data, frames, hop = smp
+    hdr = struct.pack("<IIIIIIII16s", 0x33534D53, a.rate, n, zlib.crc32(data), fmt_of(a), len(data), frames, hop,
+                      name_of(a))
     with open(a.image, "wb") as f:
         f.write(hdr + b"\xff" * (HDR_SECTOR - len(hdr)) + data)
     print(f"image: {a.image} (load at 0x97000)")
@@ -156,8 +144,8 @@ class Link:
 
 def messages(a, smp):
     """the whole load as SysEx bodies (between F0 and F7)"""
-    n, data = smp
-    yield 1, w7(n, 4) + w7(a.rate, 3) + bytes([fmt_of(a)]) + w7(len(data), 4) + name_of(a)
+    n, data, frames, hop = smp
+    yield 1, w7(n, 4) + w7(a.rate, 3) + bytes([fmt_of(a)]) + w7(len(data), 4) + w7(frames, 3) + w7(hop, 2) + name_of(a)
     for off in range(0, len(data), CHUNK):
         yield 2, w7(off, 4) + pack78(data[off:off + CHUNK])
     yield 3, w7(zlib.crc32(data), 5)
@@ -195,6 +183,7 @@ def main():
     ap.add_argument("--name", help="its name on the screen (default: the file's)")
     ap.add_argument("--no-normalize", dest="normalize", action="store_false")
     ap.add_argument("--pcm16", action="store_true", help="16-bit PCM instead of ADPCM")
+    ap.add_argument("--no-sbr", action="store_true", help="no SBR envelope")
     ap.add_argument("--port", default="SMUGA", help="part of the FM-1's MIDI port name")
     ap.add_argument("--image", help="write the flash image instead of loading")
     ap.add_argument("--syx", help="write the SysEx messages to a file instead of loading")

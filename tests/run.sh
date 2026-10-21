@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 CC="${CC:-cc}"
 OUT=build/test
 mkdir -p "$OUT/gen"
-python3 app/tools/gen_source.py --out "$OUT/gen/smuga_source.h"
+python3 app/tools/gen_source.py --out "$OUT/gen/smuga_source.h" --wav-dir "$OUT/starter"
 for u in smuga va; do
     $CC -O2 -ffp-contract=off -std=c99 -Wall -Wextra -Werror -Wdouble-promotion -Wno-unused-function \
         -c app/dsp/$u.c -Ibase/include -o "$OUT/$u.o"
@@ -28,10 +28,15 @@ with wave.open(sys.argv[1], "wb") as w:
         out += int(0.5 * math.sin(ph) * 8388607).to_bytes(3, "little", signed=True) * 2
     w.writeframes(bytes(out))
 PY
-python3 tools/smuga_load.py "$OUT/sweep.wav" --name sweep --image "$OUT/user.bin" --syx "$OUT/user.syx"
-python3 tools/smuga_load.py "$OUT/sweep.wav" --name sweep --pcm16 --image "$OUT/user16.bin"
-"$OUT/dsp_test" "$OUT" "$OUT/user16.bin" "$OUT/user.bin"
-
+L="python3 tools/smuga_load.py"
+$L "$OUT/sweep.wav" --name sweep --image "$OUT/user.bin" --syx "$OUT/user.syx"   # the scenarios': ADPCM + SBR
+$L "$OUT/sweep.wav" --pcm16 --no-sbr --image "$OUT/a16.bin"
+$L "$OUT/sweep.wav" --no-sbr --image "$OUT/a4.bin"
+# SBR: STRING (full band) kept whole, and at 11025 Hz with and without its envelope
+$L "$OUT/starter/string.wav" --rate 44100 --pcm16 --no-sbr --image "$OUT/sbr_ref.bin"
+$L "$OUT/starter/string.wav" --rate 11025 --image "$OUT/sbr_on.bin"
+$L "$OUT/starter/string.wav" --rate 11025 --no-sbr --image "$OUT/sbr_off.bin"
+"$OUT/dsp_test" "$OUT" "$OUT/a16.bin" "$OUT/a4.bin" "$OUT/sbr_ref.bin" "$OUT/sbr_on.bin" "$OUT/sbr_off.bin"
 if [ -f base/tools/build.py ] && [ -z "$SMUGA_DSP_ONLY" ]; then
     ./build.sh --host
     cp "$OUT/user.bin" "$OUT/user.syx" app/build/host/
