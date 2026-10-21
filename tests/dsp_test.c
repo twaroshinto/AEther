@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "smuga.h"
+#include "va.h"
 #include "smuga_source.h"
 
 #define BLOCK 256u                       /* the firmware's APP_BLOCK */
@@ -20,6 +21,7 @@ static float ram[SMG_RAM_FLOATS];
 static smg_t eng;
 static int fails;
 static const char *outdir = ".";
+static va_t *live_va;                    /* the VA source, pushed into LIVE before each block (as app_render does) */
 
 #define CHECK(cond, ...)                                                                                           \
     do {                                                                                                           \
@@ -47,6 +49,10 @@ static void rec_run(rec_t *rc, float secs)
     }
     while (done < want) {
         uint32_t n = want - done < BLOCK ? want - done : BLOCK;
+        if (live_va) {
+            va_render(live_va, rc->l + rc->n, n);
+            smg_live_push(&eng, rc->l + rc->n, n);
+        }
         smg_render(&eng, rc->l + rc->n, rc->r + rc->n, n);
         rc->n += n;
         done += n;
@@ -131,7 +137,8 @@ static double peak_hz(const rec_t *rc, double t0, double t1, double lo, double h
 static void reset(void)
 {
     smg_init(&eng, ram);
-    smg_set_sample(&eng, smg_source, SMG_SOURCE_LEN, SMG_SOURCE_RATE);
+    live_va = 0;
+    smg_set_sample(&eng, smg_builtin[0].data, smg_builtin[0].len, smg_builtin[0].rate, SMG_FMT_ADPCM);
 }
 
 static void rec_free(rec_t *rc) { free(rc->l); free(rc->r); }
@@ -197,7 +204,7 @@ static void t_pitch(void)
     for (i = 0; i < SMG_FS; i++)
         sine_src[i] = (int16_t)lrint(16000.0 * sin(2.0 * M_PI * 440.0 * i / SMG_FS));
     smg_init(&eng, ram);
-    smg_set_sample(&eng, sine_src, SMG_FS, SMG_FS);
+    smg_set_sample(&eng, sine_src, SMG_FS, SMG_FS, SMG_FMT_PCM16);
     eng.p.attack = 0.05f;
     eng.p.release = 0.1f;
     eng.p.width = 0.0f;
@@ -250,7 +257,7 @@ static void t_torture(void)
         eng.p.size = (uint8_t)i;
         rec_run(&rc, 0.4f);
     }
-    smg_set_sample(&eng, 0, 0, 0);       /* no sample: silence, no crash */
+    smg_set_sample(&eng, 0, 0, 0, 0);    /* no sample: silence, no crash */
     eng.p.source = SMG_SRC_SAMPLE;
     rec_run(&rc, 0.5f);
     smg_panic(&eng);
@@ -284,6 +291,130 @@ static void t_budget(void)
     rec_free(&rc);
 }
 
+/* VA through LIVE: the saw's fundamental at the key's pitch, C4 and C5 */
+static void t_va(void)
+{
+    rec_t rc = {0};
+    va_t v;
+    double f1, f2;
+    printf("va: the VA voice smeared live: C4 at 262 Hz, C5 at 523 Hz; MOTION and RESO at their extremes\n");
+    reset();
+    va_init(&v);
+    v.cutoff = 0.6f;
+    live_va = &v;
+    eng.p.source = SMG_SRC_LIVE;
+    eng.p.attack = 0.05f;
+    eng.p.release = 0.1f;
+    eng.p.width = 0.0f;
+    smg_note_on(&eng, 60, 1.0f);
+    rec_run(&rc, 2.0f);
+    smg_note_off(&eng, 60);
+    rec_run(&rc, 1.0f);
+    smg_note_on(&eng, 72, 1.0f);
+    rec_run(&rc, 2.0f);
+    f1 = peak_hz(&rc, 0.8, 1.8, 150.0, 1200.0);
+    f2 = peak_hz(&rc, 3.8, 4.8, 150.0, 1200.0);
+    printf("  C4 %.0f Hz, C5 %.0f Hz, level %.1f dBFS\n", f1, f2, rms_db(&rc, 0.8, 1.8));
+    CHECK(fabs(f1 - 261.6) <= 6.0, "va: %.0f Hz, not 262", f1);
+    CHECK(fabs(f2 - 523.3) <= 8.0, "va: %.0f Hz an octave up, not 523", f2);
+    CHECK(rms_db(&rc, 0.8, 1.8) > -30.0, "va: too quiet (%.1f dB)", rms_db(&rc, 0.8, 1.8));
+    v.motion = 1.0f;                     /* everything moving, resonance at its peak, every shape */
+    v.reso = 1.0f;
+    eng.p.size = SMG_SIZE_1K;
+    smg_note_on(&eng, 36, 1.0f);
+    smg_note_on(&eng, 84, 1.0f);
+    for (int i = 0; i <= 8; i++) {
+        v.shape = (float)i / 8.0f;
+        v.cutoff = (float)(i % 3) / 2.0f;
+        rec_run(&rc, 0.6f);
+    }
+    eng.p.freeze = 1;                    /* FREEZE holds the VA's spectrum */
+    rec_run(&rc, 1.0f);
+    check_sane(&rc, "va");
+    CHECK(eng.late == 0, "va: %u frames late", eng.late);
+    rec_wav(&rc, "va.wav");
+    rec_free(&rc);
+}
+
+/* every built-in sample, stretched: it sounds, nothing breaks */
+static void t_builtins(void)
+{
+    uint32_t b;
+    printf("builtins: each built-in sample stretched on a C major chord\n");
+    for (b = 0; b < SMG_NBUILTIN; b++) {
+        rec_t rc = {0};
+        char name[64];
+        reset();
+        smg_set_sample(&eng, smg_builtin[b].data, smg_builtin[b].len, smg_builtin[b].rate, SMG_FMT_ADPCM);
+        eng.p.stretch = 20.0f;
+        eng.p.attack = 0.3f;
+        smg_note_on(&eng, 48, 0.8f);
+        smg_note_on(&eng, 60, 0.8f);
+        smg_note_on(&eng, 64, 0.8f);
+        rec_run(&rc, 6.0f);
+        check_sane(&rc, smg_builtin[b].name);
+        printf("  %-7s %.1f dBFS\n", smg_builtin[b].name, rms_db(&rc, 1.0, 6.0));
+        CHECK(rms_db(&rc, 1.0, 6.0) > -32.0, "%s: too quiet (%.1f dB)", smg_builtin[b].name, rms_db(&rc, 1.0, 6.0));
+        CHECK(eng.late == 0, "%s: %u frames late", smg_builtin[b].name, eng.late);
+        snprintf(name, sizeof name, "builtin_%s.wav", smg_builtin[b].name);
+        rec_wav(&rc, name);
+        rec_free(&rc);
+    }
+}
+
+/* the Python ADPCM encoder (tools/smuga_load.py, the same as the built-ins') against the engine's decoder: the same
+ * sweep as PCM16 and as ADPCM (flash images from tests/run.sh), read forward and with jumps back */
+static uint8_t *slurp(const char *path, long *n)
+{
+    FILE *f = fopen(path, "rb");
+    uint8_t *b;
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    *n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = malloc((size_t)*n);
+    if (fread(b, 1, (size_t)*n, f) != (size_t)*n)
+        *n = 0;
+    fclose(f);
+    return b;
+}
+static void t_adpcm(const char *pcm_img, const char *adpcm_img)
+{
+    long np = 0, na = 0;
+    uint8_t *p = slurp(pcm_img, &np), *a = slurp(adpcm_img, &na);
+    uint32_t len, i, mism = 0;
+    double sig = 0.0, err = 0.0;
+    int32_t *fwd;
+    printf("adpcm: the encoder's sweep decoded by the engine (%s)\n", adpcm_img);
+    if (!p || !a || np < 0x1000 + 2 || na < 0x1000 + 4) {
+        CHECK(0, "adpcm: the images are missing (tests/run.sh makes them)");
+        return;
+    }
+    len = (uint32_t)(np - 0x1000) / 2u;
+    CHECK((uint32_t)(na - 0x1000) == SMG_ADPCM_SIZE(len), "adpcm: %ld bytes for %u samples", na - 0x1000, len);
+    smg_init(&eng, ram);
+    smg_set_sample(&eng, a + 0x1000, len, 22050, SMG_FMT_ADPCM);
+    fwd = malloc(len * sizeof *fwd);
+    for (i = 0; i < len; i++) {
+        int32_t x = (int16_t)(p[0x1000 + 2 * i] | p[0x1000 + 2 * i + 1] << 8);
+        fwd[i] = smg_sample_read(&eng, i);
+        sig += (double)x * x;
+        err += (double)(x - fwd[i]) * (x - fwd[i]);
+    }
+    for (i = 0; i < 4000u; i++) {        /* random access (backwards, across blocks) gives the same values */
+        uint32_t k = (uint32_t)(((uint64_t)i * 2654435761u) % len);
+        if (smg_sample_read(&eng, k) != fwd[k])
+            mism++;
+    }
+    printf("  %u samples, SNR %.1f dB, random reads that differ: %u\n", len, 10.0 * log10(sig / (err + 1e-9)), mism);
+    CHECK(10.0 * log10(sig / (err + 1e-9)) > 25.0, "adpcm: SNR %.1f dB", 10.0 * log10(sig / (err + 1e-9)));
+    CHECK(mism == 0, "adpcm: %u random reads differ from the forward ones", mism);
+    free(fwd);
+    free(p);
+    free(a);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1)
@@ -293,6 +424,10 @@ int main(int argc, char **argv)
     t_pitch();
     t_torture();
     t_budget();
+    t_va();
+    t_builtins();
+    if (argc > 3)
+        t_adpcm(argv[2], argv[3]);
     printf(fails ? "dsp_test: %d FAILED\n" : "dsp_test: all passed\n", fails);
     return fails != 0;
 }

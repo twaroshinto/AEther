@@ -2,10 +2,10 @@
 #   app/build/host/smuga_host app/tests/basic.txt app/build/host
 # (tests/run.sh runs every script here)
 wait 600
-expect slot 1
+expect slot 2
 expect preset 0
 expect page 0
-expect src_len 44100
+expect src_len 88200
 shot boot.png
 # a chord on the keys: C4 E4 G4 (keys 7, 11, 14)
 key 7 down 100
@@ -43,8 +43,8 @@ expect page 0
 spin K1 80
 wait 100
 expect v0 127
-# the PAD source (USER is skipped while no sample is loaded), a preset, HOLD
-turn ALGO 1
+# the PAD source (two back from CHOIR, past VA), a preset, HOLD
+spin ALGO -2
 wait 50
 expect slot 0
 turn PRESET 2
@@ -97,3 +97,26 @@ expect octave 1
 expect preset 2
 expect slot 0
 expect late 0
+# VA: the virtual-analog voice, its page, a note through the LIVE source
+tap HOME
+spin ALGO 1
+wait 50
+expect slot 1
+tap EDIT
+wait 30
+turn K2 4
+wait 100
+expect v16 84
+key 7 down 100
+wav va.wav
+wait 3000
+wavstop
+shot va.png
+expect peak_db_min -30
+expect late 0
+key 7 up
+# the VA presets switch to VA by themselves
+spin PRESET 3
+wait 50
+expect preset 5
+expect slot 1

@@ -45,9 +45,18 @@ Sztuczki, dzięki którym to się mieści:
 | Polifonia = N razy FFT? | Nie: wszystkie głosy sumowane w **jedno widmo amplitud**, jedno odwrotne FFT na ramkę niezależnie od liczby nut |
 | Stereo = 2 × FFT? | Nie: lewy i prawy kanał to dwa rzeczywiste sygnały spakowane w **jedno zespolone FFT** (Re = L, Im = R), każdy z własnymi losowymi fazami — naturalna, zdekorelowana szerokość |
 | FFT 8192 w jednym przerwaniu audio = skok obciążenia | Ramka to maszyna stanów z małymi krokami; każdy blok 256 próbek wykonuje swoją część pracy (z zapasem ×1,5). Górne ograniczenie pracy ramki liczone z parametrów, więc nagła zmiana (FREEZE puszczony, nowe nuty, dłuższe okno) nie spóźnia ramki |
-| RAM | Bufory float dla okna 8192: FFT 64 KB + 2 × widmo 32 KB + odtwarzanie/ogon stereo 64 KB + okno i ćwiartka sinusa 24 KB ≈ **188 KB puli** |
-| Sample w RAM-ie się nie zmieści | Sample czytany bezpośrednio z flasha (XIP), 22,05 kHz: do 6,3 s własnego materiału |
+| RAM | Bufory float dla okna 8192: FFT 64 KB + 2 × widmo 32 KB + odtwarzanie/ogon stereo 64 KB + okno i ćwiartka sinusa 24 KB + pierścień VA 32 KB ≈ **220 KB puli** (z 336; razem z ekranem ~278 KB) |
+| Sample w RAM-ie się nie zmieści | Sample czytany bezpośrednio z flasha (XIP), 22,05 kHz, w ADPCM: do 24 s własnego materiału |
 | Znany błąd CPU (mnożenia 64-bit obok 16-bitowych odczytów) | Silnik jest w całości na float, bez mnożeń 64-bitowych |
+
+Dopisane w v0.2:
+
+- **VA jako źródło na żywo** (`app/dsp/va.c`): jeden monofoniczny głos VA na C4 pisze do pierścienia 8192 próbek
+  (32 KB), a silnik analizuje jego najnowsze okno co ramkę i przesuwa widmo na każdy klawisz, tak jak przy
+  samplu. Głos VA na nutę nie miałby sensu: losowe fazy i tak zjadają dudnienia i detune, liczy się tylko
+  widmo, a jeden głos kosztuje ~1–2 % CPU zamiast ośmiu.
+- **Cztery wbudowane sample** (CHOIR, GLASS, STRING, WIND), generowane przy budowaniu.
+- **Kompresja sampli (IMA ADPCM)**, opisana niżej.
 
 Opóźnienie: nuta zaczyna brzmieć w następnej ramce, czyli po ~1–1,5 hopu (rozmiar 8K: ~100–140 ms, 1K: ~15–20 ms).
 Dla tej estetyki to cecha, nie wada — ale gałka SIZE pozwala wybrać krótsze, bardziej „ziarniste” okno.
@@ -57,6 +66,20 @@ warstwy oktaw, analiza sampla, SPREAD, okno 8K) to ~250 tys. „jednostek” (�
 ~24 tys. na blok. Przy ~15–30 cyklach na jednostkę daje to **ok. 20–40 % rdzenia** w najgorszym razie, typowo
 połowę tego. Stopka ekranu pokazuje prawdziwe CPU % — to pierwsza rzecz do sprawdzenia na urządzeniu.
 
+### Kompresja sampli: dlaczego ADPCM, a nie MP3
+
+| Format | Bity/próbkę | Dekodowanie | Dostęp swobodny | Ocena |
+|---|---|---|---|---|
+| PCM 16 bit | 16 | nic | tak | czysto, ale 6,3 s własnego materiału |
+| **IMA ADPCM, bloki po 256** | **4,1** | ~10 operacji całkowitych na próbkę | **tak**, co blok | **wybrane**: 4× więcej (24 s), praktycznie zero CPU |
+| MP3 / AAC / Opus | 1–2 | ramkowe, dziesiątki KB RAM-u na dekoder | słaby (ramki, rezerwuar bitów) | wykonalne (fm1-radio dekoduje MP3 i HE-AAC), ale kosztuje RAM, którego silnik potrzebuje, i komplikuje skakanie po samplu |
+| Gotowe spektrogramy (magnitudy w ~512 pasmach logarytmicznych, 8 bit) | — | żadne, bez FFT analizy | tak | najciekawsze na przyszłość: 2 s ≈ 10 KB i o połowę mniej pracy CPU na ramkę, kosztem rozdzielczości widma |
+
+Silnik czyta sample do przodu (z cofnięciem o jedną próbkę do interpolacji), więc dekoder ADPCM trzyma swój stan
+i dekoduje tylko nowe próbki. Do początku bloku cofa się najwyżej o 255 próbek. Szum kwantyzacji ADPCM
+(27–36 dB SNR) po rozmyciu fazy zmienia się w szeroki, cichy szum, a z PaulStretchem i tak wszystko staje się
+szumem o kształtowanym widmie.
+
 ### B. Rozciąganie dźwięku z komputera na żywo (USB Audio) — następny krok
 
 FM-1 nie ma wejścia audio, ale fm1-base obsługuje **USB Audio OUT** (komputer gra przez FM-1). Dziś ten strumień
@@ -64,10 +87,11 @@ jest miksowany po aplikacji i aplikacja go nie widzi. Gdyby `usb.c` oddawał pr�
 zbierać je w pierścień (wystarczy jedno okno: 8192 × 2 B = 16 KB) i rozciągać na żywo — „PaulStretch jako efekt”.
 Wymaga zmiany w fm1-base (warto zaproponować upstream).
 
-### C. Resampling własnego dźwięku FM-1
+### C. Własny syntezator jako źródło — zrobione jako VA
 
-Nagranie wyjścia innego silnika (np. prostego FM) do RAM-u i rozciągnięcie go. W RAM-ie po silniku zostaje ~90 KB
-→ ok. 2 s przy 22 kHz/16 bit. Dłużej tylko przez flash (wolny zapis, zużycie). Ciekawe, ale mniej opłacalne niż B.
+Pierwotny pomysł z nagrywaniem innego silnika do RAM-u zastąpiłem źródłem LIVE: syntezator gra wprost do
+pierścienia, z którego silnik bierze najnowsze okno. Nie trzeba nic nagrywać, a każda zmiana gałki od razu
+zmienia chmurę. Tą samą drogą da się dołożyć kolejne generatory (FM, wavetable, szum z filtrami grzebieniowymi).
 
 ### D. Drugi rdzeń
 

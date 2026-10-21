@@ -24,18 +24,35 @@
 #define SMG_DISP 60u                     /* bands of the display spectrum (log-spaced, 40 Hz .. 16 kHz) */
 
 /* the RAM the engine needs, in floats: the complex FFT buffer (2N), the source and output magnitudes (N/2 + 1 each),
- * the play and tail buffers of both channels (N/2 each), the synthesis window (N/2), a quarter sine (N/4 + 1) */
+ * the play and tail buffers of both channels (N/2 each), the synthesis window (N/2), a quarter sine (N/4 + 1), the
+ * LIVE source's ring (N) */
 #define SMG_RAM_FLOATS (2u * SMG_NMAX + 2u * (SMG_NMAX / 2u + 1u) + 4u * (SMG_NMAX / 2u) + SMG_NMAX / 2u + \
-                        SMG_NMAX / 4u + 1u)
+                        SMG_NMAX / 4u + 1u + SMG_NMAX)
 
-enum { SMG_SRC_PAD, SMG_SRC_SAMPLE, SMG_NSRC };
+/* PAD: harmonic bands built in the spectrum; SAMPLE: a sample scanned slowly; LIVE: whatever the caller pushes
+ * (smg_live_push: a synthesizer running beside the engine), its newest window analysed every frame */
+enum { SMG_SRC_PAD, SMG_SRC_SAMPLE, SMG_SRC_LIVE, SMG_NSRC };
+/* sample formats: 16-bit PCM, or IMA ADPCM (4 bits a sample) in blocks of SMG_ADPCM_BLOCK samples, each block
+ * SMG_ADPCM_BYTES bytes: the first sample (int16, little-endian), the step index, a zero, then the other 255
+ * samples' codes, two a byte, the low nibble first. Blocks start afresh, so any point is at most 255 codes away. */
+enum { SMG_FMT_PCM16, SMG_FMT_ADPCM, SMG_NFMT };
+#define SMG_ADPCM_BLOCK 256u
+#define SMG_ADPCM_BYTES 132u
+#define SMG_ADPCM_SIZE(len) (((len) + SMG_ADPCM_BLOCK - 1u) / SMG_ADPCM_BLOCK * SMG_ADPCM_BYTES)
 enum { SMG_SIZE_1K, SMG_SIZE_2K, SMG_SIZE_4K, SMG_SIZE_8K, SMG_NSIZE };
 
 typedef struct {
-    const int16_t *pcm;                  /* mono, 16-bit; 0 = none */
+    const uint8_t *data;                 /* mono, SMG_FMT_*; 0 = none */
     uint32_t len;                        /* samples */
     uint32_t rate;                       /* Hz (any: read with interpolation) */
+    uint32_t fmt;
 } smg_sample_t;
+
+typedef struct {                         /* the ADPCM reader: the block decoded so far */
+    uint32_t blk;                        /* 0xFFFFFFFF: none */
+    uint32_t pos;                        /* the last code decoded, in the block */
+    int32_t pred, prev, idx;             /* the sample at pos, the one before it, the step index */
+} smg_adpcm_t;
 
 /* the sound's parameters: the main loop writes them, the engine takes a copy at the start of each frame */
 typedef struct {
@@ -74,6 +91,9 @@ typedef struct {
     smg_params_t p;                      /* written by the caller */
     smg_params_t fp;                     /* this frame's copy */
     smg_sample_t smp;                    /* the source sample (smg_set_sample) */
+    smg_adpcm_t ad;
+    float *ring;                         /* LIVE: the newest SMG_NMAX samples pushed */
+    uint32_t ring_w, live_at;            /* the next write; where this frame's window starts */
     smg_voice_t voice[SMG_VOICES];
     float *work, *src, *acc, *play[2], *tail[2], *win, *qs;
     uint32_t n, hop, n_win;              /* the frame being built, its hop, the window's frame */
@@ -94,7 +114,9 @@ typedef struct {
 
 void smg_init(smg_t *e, float *ram);    /* ram: SMG_RAM_FLOATS floats; e->p gets defaults */
 void smg_defaults(smg_params_t *p);
-void smg_set_sample(smg_t *e, const int16_t *pcm, uint32_t len, uint32_t rate);   /* audio context or stopped */
+void smg_set_sample(smg_t *e, const void *data, uint32_t len, uint32_t rate, uint32_t fmt);   /* audio context */
+int32_t smg_sample_read(smg_t *e, uint32_t i);   /* the sample's value at i (decoded), for tests and screens */
+void smg_live_push(smg_t *e, const float *x, uint32_t n);   /* audio context: LIVE's newest samples, before render */
 void smg_note_on(smg_t *e, int32_t note, float vel);    /* audio context */
 void smg_note_off(smg_t *e, int32_t note);
 void smg_all_off(smg_t *e);              /* release every voice */

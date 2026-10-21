@@ -18,6 +18,11 @@ jobs:
           python-version: "3.12"
       - run: pip install Pillow
       - run: sh tests/run.sh
+      - run: python3 app/tools/gen_source.py --out build/starter.h --wav-dir build/starter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starter-samples
+          path: build/starter/*.wav
       - uses: actions/upload-artifact@v4
         if: always()
         with:

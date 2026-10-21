@@ -22,10 +22,11 @@ enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_NOBJ };
 #define SMP_HDR_OFF PLAT_DATA_LO         /* 0x97000 */
 #define SMP_DATA_OFF (PLAT_DATA_LO + 0x1000u)
 #define SMP_DATA_END 0xDC000u
-#define SMP_MAX_BYTES (SMP_DATA_END - SMP_DATA_OFF)   /* 278528 B: 6.3 s at 22.05 kHz */
-#define SMP_MAGIC 0x31534D53u            /* "SMS1" */
+#define SMP_MAX_BYTES (SMP_DATA_END - SMP_DATA_OFF)   /* 278528 B: 24 s at 22.05 kHz in ADPCM, 6.3 s in PCM16 */
+#define SMP_MAGIC 0x32534D53u            /* "SMS2" */
 typedef struct {
     uint32_t magic, rate, len, crc;      /* len in samples; crc: CRC-32 (zlib's) of the data */
+    uint32_t fmt, bytes;                 /* SMG_FMT_* (dsp/smuga.h); the data's size */
     char name[16];
 } smp_hdr_t;
 

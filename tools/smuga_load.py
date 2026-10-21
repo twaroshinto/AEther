@@ -3,8 +3,9 @@
 # Copyright (C) 2026 fm1-smuga contributors
 """Load a sample into SMUGA on an FM-1 over USB-MIDI (SysEx), for its USER source.
 
-  smuga_load.py SOUND.wav                  load it (mono, resampled to 22050 Hz, trimmed to fit: 6.3 s)
-  smuga_load.py SOUND.wav --rate 44100     full bandwidth, half the length (3.1 s)
+  smuga_load.py SOUND.wav                  load it: mono, 22050 Hz, IMA ADPCM (4 bits a sample), up to 24 s
+  smuga_load.py SOUND.wav --pcm16          16-bit instead: no ADPCM hiss, a quarter of the length (6.3 s)
+  smuga_load.py SOUND.wav --rate 44100     full bandwidth, half the length (12 s; 3.1 s with --pcm16)
   smuga_load.py SOUND.wav --start 1.5 --secs 4   a part of it
   smuga_load.py SOUND.wav --image OUT.bin  no FM-1: the flash image instead (header sector + data), for the host
                                            simulator's `data OUT.bin 0x97000` (tests)
@@ -24,6 +25,10 @@ import sys
 import time
 import wave
 import zlib
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app" / "tools"))
+import smg_adpcm  # noqa: E402
 
 HDR_SECTOR = 0x1000
 MAX_BYTES = 0xDC000 - 0x98000          # app.h SMP_MAX_BYTES
@@ -85,12 +90,14 @@ def prepare(a):
     if a.secs:
         x = x[:int(a.secs * rate)]
     x = resample(x, rate, a.rate)
-    x = x[:MAX_BYTES // 2]
+    x = x[:MAX_BYTES // 2 if a.pcm16 else MAX_BYTES // smg_adpcm.BYTES * smg_adpcm.BLOCK]
     peak = max((abs(v) for v in x), default=0.0) or 1.0
     g = 0.95 / peak if a.normalize else 1.0
-    pcm = struct.pack(f"<{len(x)}h", *(max(-32768, min(32767, int(round(v * g * 32767)))) for v in x))
-    print(f"{a.wav}: {len(x)} samples at {a.rate} Hz ({len(x) / a.rate:.2f} s), peak {20 * __import__('math').log10(peak):.1f} dBFS")
-    return pcm
+    pcm = [max(-32768, min(32767, int(round(v * g * 32767)))) for v in x]
+    data = struct.pack(f"<{len(pcm)}h", *pcm) if a.pcm16 else smg_adpcm.encode(pcm)
+    print(f"{a.wav}: {len(x)} samples at {a.rate} Hz ({len(x) / a.rate:.2f} s), peak "
+          f"{20 * __import__('math').log10(peak):.1f} dBFS, {'PCM16' if a.pcm16 else 'ADPCM'} {len(data)} B")
+    return len(pcm), data
 
 
 def name_of(a):
@@ -111,10 +118,15 @@ def pack78(b):
     return bytes(out)
 
 
-def image(a, pcm):
-    hdr = struct.pack("<IIII16s", 0x31534D53, a.rate, len(pcm) // 2, zlib.crc32(pcm), name_of(a))
+def fmt_of(a):
+    return 0 if a.pcm16 else 1         # SMG_FMT_PCM16, SMG_FMT_ADPCM
+
+
+def image(a, smp):
+    n, data = smp
+    hdr = struct.pack("<IIIIII16s", 0x32534D53, a.rate, n, zlib.crc32(data), fmt_of(a), len(data), name_of(a))
     with open(a.image, "wb") as f:
-        f.write(hdr + b"\xff" * (HDR_SECTOR - len(hdr)) + pcm)
+        f.write(hdr + b"\xff" * (HDR_SECTOR - len(hdr)) + data)
     print(f"image: {a.image} (load at 0x97000)")
 
 
@@ -142,25 +154,27 @@ class Link:
         raise SystemExit(f"no answer from the FM-1 (command {cmd}): is SMUGA running?")
 
 
-def messages(a, pcm):
+def messages(a, smp):
     """the whole load as SysEx bodies (between F0 and F7)"""
-    yield 1, w7(len(pcm) // 2, 4) + w7(a.rate, 3) + name_of(a)
-    for off in range(0, len(pcm), CHUNK):
-        yield 2, w7(off, 4) + pack78(pcm[off:off + CHUNK])
-    yield 3, w7(zlib.crc32(pcm), 5)
+    n, data = smp
+    yield 1, w7(n, 4) + w7(a.rate, 3) + bytes([fmt_of(a)]) + w7(len(data), 4) + name_of(a)
+    for off in range(0, len(data), CHUNK):
+        yield 2, w7(off, 4) + pack78(data[off:off + CHUNK])
+    yield 3, w7(zlib.crc32(data), 5)
 
 
-def syx(a, pcm):
+def syx(a, smp):
     with open(a.syx, "wb") as f:
-        for cmd, body in messages(a, pcm):
+        for cmd, body in messages(a, smp):
             f.write(bytes([0xF0, 0x7D, 0x53, 0x4D, cmd]) + body + b"\xf7")
     print(f"syx: {a.syx}")
 
 
-def load(a, pcm):
+def load(a, smp):
+    pcm = smp[1]
     link = Link(a.port)
     t0 = time.time()
-    for cmd, body in messages(a, pcm):
+    for cmd, body in messages(a, smp):
         st = link.cmd(cmd, body, timeout=15.0 if cmd == 3 else 5.0)
         if st:
             raise SystemExit(f"command {cmd} refused: {STATUS.get(st, st)}")
@@ -180,6 +194,7 @@ def main():
     ap.add_argument("--secs", type=float, help="how much of it")
     ap.add_argument("--name", help="its name on the screen (default: the file's)")
     ap.add_argument("--no-normalize", dest="normalize", action="store_false")
+    ap.add_argument("--pcm16", action="store_true", help="16-bit PCM instead of ADPCM")
     ap.add_argument("--port", default="SMUGA", help="part of the FM-1's MIDI port name")
     ap.add_argument("--image", help="write the flash image instead of loading")
     ap.add_argument("--syx", help="write the SysEx messages to a file instead of loading")
@@ -192,14 +207,14 @@ def main():
         return
     if not a.wav:
         ap.error("a WAV file")
-    pcm = prepare(a)
+    smp = prepare(a)
     if a.image or a.syx:
         if a.image:
-            image(a, pcm)
+            image(a, smp)
         if a.syx:
-            syx(a, pcm)
+            syx(a, smp)
     else:
-        load(a, pcm)
+        load(a, smp)
 
 
 if __name__ == "__main__":

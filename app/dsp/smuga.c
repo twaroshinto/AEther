@@ -172,7 +172,8 @@ static uint32_t pad_units(const smg_t *e, float ratio)
 
 static int needs_analysis(const smg_t *e)
 {
-    return e->fp.source == SMG_SRC_SAMPLE && e->smp.len && !(e->fp.freeze && e->src_ok);
+    return ((e->fp.source == SMG_SRC_SAMPLE && e->smp.len) || e->fp.source == SMG_SRC_LIVE) &&
+           !(e->fp.freeze && e->src_ok);
 }
 
 /* the most this frame's job can take, in units, from what it will do: a sudden jump in work (FREEZE let go, more
@@ -186,13 +187,13 @@ static uint32_t bound(const smg_t *e)
     if (e->n_win != n)
         b += 4u * half;
     if (needs_analysis(e))
-        b += 2u * n + half * lg + half + (e->fp.spread > 0.001f ? n : 0u);
+        b += 3u * n + half * lg + half + (e->fp.spread > 0.001f ? n : 0u);
     for (v = 0; v < SMG_VOICES; v++) {
         const smg_voice_t *vc = &e->voice[v];
         float r;
         if (vc->note < 0 || vc->level <= 0.0f)
             continue;
-        if (e->fp.source == SMG_SRC_SAMPLE) {
+        if (e->fp.source != SMG_SRC_PAD) {
             layers += 1u + (e->fp.sub >= 0.001f) + (e->fp.shimmer >= 0.001f);
             continue;
         }
@@ -239,7 +240,7 @@ static void frame_begin(smg_t *e)
 static void scan_advance(smg_t *e)       /* once a frame, after its analysis */
 {
     float len, adv;
-    if (!e->smp.len || e->fp.freeze || e->fp.stretch <= 0.0f)
+    if (e->fp.source != SMG_SRC_SAMPLE || !e->smp.len || e->fp.freeze || e->fp.stretch <= 0.0f)
         return;
     len = (float)e->smp.len;
     adv = (float)e->hop * (float)e->smp.rate / (float)SMG_FS / fm_maxf(e->fp.stretch, 1.0f);
@@ -250,13 +251,77 @@ static void scan_advance(smg_t *e)       /* once a frame, after its analysis */
         e->scan = e->scan_start;
 }
 
-/* the source around the scan, resampled to SMG_FS, Hann-windowed (the window squared: sin^2) */
+/* ------------------------------------------------------------- the sample --- */
+static const int8_t AD_INDEX[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
+static const int16_t AD_STEP[89] = {
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97,
+    107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
+    876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871,
+    5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623,
+    27086, 29794, 32767};
+
+/* sample i of an ADPCM sample: decoded forward from where the reader is, or from its block's start. The engine reads
+ * forward (with a step back of one for the interpolation), so this is a few operations a sample */
+static int32_t adpcm_at(smg_t *e, uint32_t i)
+{
+    smg_adpcm_t *a = &e->ad;
+    uint32_t b = i / SMG_ADPCM_BLOCK, j = i % SMG_ADPCM_BLOCK;
+    const uint8_t *blk = e->smp.data + b * SMG_ADPCM_BYTES;
+    if (b == a->blk && j == a->pos)
+        return a->pred;
+    if (b == a->blk && j + 1u == a->pos)
+        return a->prev;
+    if (b != a->blk || j < a->pos) {
+        a->blk = b;
+        a->pos = 0;
+        a->pred = a->prev = (int16_t)(blk[0] | blk[1] << 8);
+        a->idx = blk[2] > 88u ? 88 : blk[2];
+    }
+    while (a->pos < j) {
+        uint32_t c = blk[4u + a->pos / 2u] >> (a->pos & 1u ? 4 : 0) & 15u;
+        int32_t st = AD_STEP[a->idx], d = st >> 3;
+        if (c & 4u)
+            d += st;
+        if (c & 2u)
+            d += st >> 1;
+        if (c & 1u)
+            d += st >> 2;
+        a->prev = a->pred;
+        a->pred += c & 8u ? -d : d;
+        a->pred = a->pred < -32768 ? -32768 : a->pred > 32767 ? 32767 : a->pred;
+        a->idx += AD_INDEX[c & 7u];
+        a->idx = a->idx < 0 ? 0 : a->idx > 88 ? 88 : a->idx;
+        a->pos++;
+    }
+    return a->pred;
+}
+
+int32_t smg_sample_read(smg_t *e, uint32_t i)
+{
+    if (!e->smp.data || i >= e->smp.len)
+        return 0;
+    if (e->smp.fmt == SMG_FMT_ADPCM)
+        return adpcm_at(e, i);
+    return (int16_t)(e->smp.data[2u * i] | e->smp.data[2u * i + 1u] << 8);
+}
+
+/* the source around the scan, resampled to SMG_FS, Hann-windowed (the window squared: sin^2); LIVE: the newest n
+ * samples of the ring */
 static void load_step(smg_t *e)
 {
-    const int16_t *pcm = e->smp.pcm;
     uint32_t n = e->n, k = e->i, end = k + CHUNK < n ? k + CHUNK : n, len = e->smp.len;
     float rs = (float)e->smp.rate / (float)SMG_FS, flen = (float)len;
     float t = e->scan - (float)(n / 2u) * rs + (float)k * rs;
+    if (e->fp.source == SMG_SRC_LIVE) {
+        if (k == 0)
+            e->live_at = e->ring_w - n;
+        for (; k < end; k++) {
+            float w = win_at(e, k);
+            e->work[2u * k] = e->ring[(e->live_at + k) & (SMG_NMAX - 1u)] * w * w;
+            e->work[2u * k + 1u] = 0.0f;
+        }
+        k = end;
+    }
     for (; k < end; k++, t += rs) {
         float tt = t, w, s0, s1, fr;
         uint32_t i0, i1;
@@ -269,16 +334,24 @@ static void load_step(smg_t *e)
             i0 = len - 1u;
         i1 = i0 + 1u < len ? i0 + 1u : 0u;
         fr = tt - (float)i0;
-        s0 = (float)pcm[i0];
-        s1 = (float)pcm[i1];
+        s0 = (float)smg_sample_read(e, i0);
+        s1 = (float)smg_sample_read(e, i1);
         w = win_at(e, k);
         e->work[2u * k] = (s0 + fr * (s1 - s0)) * (1.0f / 32768.0f) * w * w;
         e->work[2u * k + 1u] = 0.0f;
     }
-    e->units += end - e->i;
+    e->units += 2u * (end - e->i);
     e->i = end;
     if (end >= n)
         enter(e, S_AREV);
+}
+
+void smg_live_push(smg_t *e, const float *x, uint32_t n)
+{
+    uint32_t k, w = e->ring_w;
+    for (k = 0; k < n; k++)
+        e->ring[(w + k) & (SMG_NMAX - 1u)] = x[k];
+    e->ring_w = w + n;
 }
 
 static void mag_step(smg_t *e)
@@ -520,8 +593,8 @@ static void step(smg_t *e)
     case S_SPR2: spread_step(e); break;
     case S_CLEAR: clear_step(e); break;
     case S_VOICE:
-        if (e->fp.source == SMG_SRC_SAMPLE) {
-            if (e->smp.len && e->src_ok)
+        if (e->fp.source != SMG_SRC_PAD) {
+            if (e->src_ok)
                 voice_sample_step(e);
             else
                 enter(e, S_PHASE);       /* no source yet: silence */
@@ -691,11 +764,13 @@ int smg_active(const smg_t *e)
     return c;
 }
 
-void smg_set_sample(smg_t *e, const int16_t *pcm, uint32_t len, uint32_t rate)
+void smg_set_sample(smg_t *e, const void *data, uint32_t len, uint32_t rate, uint32_t fmt)
 {
-    e->smp.pcm = len ? pcm : 0;
-    e->smp.len = pcm ? len : 0u;
+    e->smp.data = len ? (const uint8_t *)data : 0;
+    e->smp.len = data ? len : 0u;
     e->smp.rate = rate ? rate : SMG_FS;
+    e->smp.fmt = fmt < SMG_NFMT ? fmt : SMG_FMT_PCM16;
+    e->ad.blk = 0xFFFFFFFFu;
     e->src_ok = 0;
     e->scan = e->smp.len ? fm_clampf(e->p.position, 0.0f, 1.0f) * (float)(e->smp.len - 1u) : 0.0f;
     e->last_position = -1.0f;
@@ -746,7 +821,9 @@ void smg_init(smg_t *e, float *ram)
     e->tail[0] = m; m += SMG_NMAX / 2u;
     e->tail[1] = m; m += SMG_NMAX / 2u;
     e->win = m; m += SMG_NMAX / 2u;
-    e->qs = m;
+    e->qs = m; m += SMG_NMAX / 4u + 1u;
+    e->ring = m;
+    e->ad.blk = 0xFFFFFFFFu;
     for (k = 0; k <= QN; k++)
         e->qs[k] = fm_sinf(FM_TWO_PI * (float)k / (float)SMG_NMAX);
     e->qs[QN] = 1.0f;

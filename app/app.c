@@ -8,7 +8,8 @@
  *   keys            notes (velocity from the keys); OCT- / OCT+ the octave
  *   K1 .. K4        the page's four parameters
  *   SEL, SELECT     the next page: SOURCE, SPACE, COLOR (EDIT, ENV and FX go straight to each)
- *   ALGORITHM       the source: PAD (harmonic clouds), CHOIR (the built-in sample), USER (a sample loaded over USB)
+ *   ALGORITHM       the source: PAD (harmonic clouds), VA (a virtual-analog voice, smeared live), the built-in
+ *                   samples (CHOIR, GLASS, STRING, WIND), USER (a sample loaded over USB)
  *   PRESET          a factory preset
  *   PLAY            HOLD: the notes stay after the keys are let go (a new chord replaces them)
  *   REC             FREEZE: the sample's scan stops, the spectrum held
@@ -18,11 +19,12 @@
  * go out over USB. */
 #include "fastmath.h"
 #include "smuga.h"
-#include "smuga_source.h"                /* the built-in source (tools/gen_source.py, at build time) */
+#include "va.h"
+#include "smuga_source.h"                /* the built-in samples (tools/gen_source.py, at build time) */
 
 /* ------------------------------------------------------------- parameters --- */
 enum { P_STRETCH, P_POSITION, P_SPREAD, P_SIZE, P_BRIGHT, P_BAND, P_INHARM, P_ODD,
-       P_ATTACK, P_RELEASE, P_WIDTH, P_LEVEL, P_TILT, P_SUB, P_SHIMMER, NP };
+       P_ATTACK, P_RELEASE, P_WIDTH, P_LEVEL, P_TILT, P_SUB, P_SHIMMER, P_SHAPE, P_CUTOFF, P_RESO, P_MOTION, NP };
 typedef struct {
     const char *name;
     uint8_t max;                         /* the values are 0 .. max (127, or the sizes 0 .. 3) */
@@ -32,14 +34,23 @@ static const pdef_t PDEF[NP] = {
     {"BRIGHT", 127}, {"BAND", 127}, {"INHARM", 127}, {"ODD", 127},
     {"ATTACK", 127}, {"RELEASE", 127}, {"WIDTH", 127}, {"LEVEL", 127},
     {"TILT", 127}, {"SUB", 127}, {"SHIMMER", 127},
+    {"SHAPE", 127}, {"CUTOFF", 127}, {"RESO", 127}, {"MOTION", 127},
 };
 
-enum { SLOT_PAD, SLOT_CHOIR, SLOT_USER, NSLOT };
-static const char *const SLOT_NAME[NSLOT] = {"PAD", "CHOIR", "USER"};
+/* the sources: PAD, VA, the built-in samples (smg_builtin[], SLOT_SMP0 on), USER */
+enum { SLOT_PAD, SLOT_VA, SLOT_SMP0, SLOT_CHOIR = SLOT_SMP0, SLOT_GLASS, SLOT_STRING, SLOT_WIND };
+#define SLOT_USER (SLOT_SMP0 + SMG_NBUILTIN)
+#define NSLOT (SLOT_USER + 1u)
+static int slot_sample(uint32_t s) { return s >= SLOT_SMP0; }   /* a sample, built-in or loaded */
+static const char *slot_name(uint32_t s)
+{
+    return s == SLOT_PAD ? "PAD" : s == SLOT_VA ? "VA" : s < SLOT_USER ? smg_builtin[s - SLOT_SMP0].name : "USER";
+}
 enum { PG_SOURCE, PG_SPACE, PG_COLOR, NPAGE };
 static const char *const PAGE_NAME[NPAGE] = {"SOURCE", "SPACE", "COLOR"};
 static const uint8_t PAGE_SAMPLE[4] = {P_STRETCH, P_POSITION, P_SPREAD, P_SIZE};
 static const uint8_t PAGE_PAD[4] = {P_BRIGHT, P_BAND, P_INHARM, P_ODD};
+static const uint8_t PAGE_VA[4] = {P_SHAPE, P_CUTOFF, P_RESO, P_MOTION};
 static const uint8_t PAGE_SPACE[4] = {P_ATTACK, P_RELEASE, P_WIDTH, P_LEVEL};
 static const uint8_t PAGE_COLOR[4] = {P_TILT, P_SUB, P_SHIMMER, P_SIZE};
 
@@ -48,20 +59,25 @@ typedef struct {
     uint8_t slot;
     uint8_t v[NP];
 } preset_t;
-/*                                       STR POS SPR SZ  BRI BND INH ODD ATK REL WID LEV TLT SUB SHM */
+/*                          STR POS SPR SZ  BRI BND INH ODD ATK REL WID LEV TLT SUB SHM SHP CUT RES MOT */
 static const preset_t PRESETS[] = {
-    {"GLACIER", SLOT_CHOIR,             {52,   0,  0, 3, 64, 50,  0,  0, 80, 88, 100, 96, 64,  0,  0}},
-    {"FOG", SLOT_CHOIR,                 {80,  30, 70, 3, 64, 50,  0,  0, 90, 96, 110, 96, 44, 40,  0}},
-    {"HALO", SLOT_PAD,                  {52,   0,  0, 3, 80, 40,  0,  0, 85, 92, 110, 90, 64,  0, 50}},
-    {"ORGAN DUST", SLOT_PAD,            {52,   0,  0, 2, 50, 18,  0, 100, 50, 70, 80, 96, 64, 30,  0}},
-    {"BELL CLOUD", SLOT_PAD,            {52,   0,  0, 3, 90, 30, 90,  0, 60, 96, 110, 90, 70,  0, 20}},
-    {"GRAIN", SLOT_CHOIR,               {30,  20, 20, 0, 64, 50,  0,  0, 20, 60, 70, 96, 64,  0,  0}},
-    {"FROZEN", SLOT_CHOIR,              {127, 64, 90, 3, 64, 50,  0,  0, 100, 110, 127, 96, 50, 20, 30}},
-    {"DEEP", SLOT_PAD,                  {52,   0,  0, 3, 25, 80,  0, 30, 95, 105, 100, 100, 40, 80,  0}},
+    {"GLACIER", SLOT_CHOIR,     {52,   0,  0, 3, 64, 50,  0,  0, 80, 88, 100, 96, 64,  0,  0,  0, 80, 40, 30}},
+    {"FOG", SLOT_CHOIR,         {80,  30, 70, 3, 64, 50,  0,  0, 90, 96, 110, 96, 44, 40,  0,  0, 80, 40, 30}},
+    {"HALO", SLOT_PAD,          {52,   0,  0, 3, 80, 40,  0,  0, 85, 92, 110, 90, 64,  0, 50,  0, 80, 40, 30}},
+    {"ORGAN DUST", SLOT_PAD,    {52,   0,  0, 2, 50, 18,  0, 100, 50, 70, 80, 96, 64, 30,  0,  0, 80, 40, 30}},
+    {"BELL CLOUD", SLOT_PAD,    {52,   0,  0, 3, 90, 30, 90,  0, 60, 96, 110, 90, 70,  0, 20,  0, 80, 40, 30}},
+    {"ANALOG MIST", SLOT_VA,    {52,   0,  0, 3, 64, 50,  0,  0, 80, 90, 110, 96, 64, 30,  0,  0, 72, 40, 45}},
+    {"RESO SWEEP", SLOT_VA,     {52,   0,  0, 2, 64, 50,  0,  0, 60, 85, 100, 90, 64,  0,  0, 64, 55, 105, 90}},
+    {"GLASS RAIN", SLOT_GLASS,  {60,   0, 10, 3, 64, 50,  0,  0, 70, 96, 120, 90, 70,  0, 40,  0, 80, 40, 30}},
+    {"HARP DREAM", SLOT_STRING, {45,   0,  0, 3, 64, 50,  0,  0, 60, 90, 120, 96, 64, 20,  0,  0, 80, 40, 30}},
+    {"WIND TUNNEL", SLOT_WIND,  {70,   0, 50, 3, 64, 50,  0,  0, 90, 96, 127, 100, 50, 0,  0,  0, 80, 40, 30}},
+    {"GRAIN", SLOT_CHOIR,       {30,  20, 20, 0, 64, 50,  0,  0, 20, 60, 70, 96, 64,  0,  0,  0, 80, 40, 30}},
+    {"FROZEN", SLOT_CHOIR,      {127, 64, 90, 3, 64, 50,  0,  0, 100, 110, 127, 96, 50, 20, 30, 0, 80, 40, 30}},
+    {"DEEP", SLOT_PAD,          {52,   0,  0, 3, 25, 80,  0, 30, 95, 105, 100, 100, 40, 80, 0,  0, 80, 40, 30}},
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
 
-#define SET_MAGIC 0x31474D53u            /* "SMG1": the settings record; another magic loads a preset */
+#define SET_MAGIC 0x32474D53u            /* "SMG2": the settings record; another magic loads a preset */
 typedef struct {
     uint32_t magic;
     uint8_t v[NP];
@@ -75,6 +91,8 @@ static uint8_t set_dirty;
 /* ------------------------------------------------------------------ engine --- */
 static smg_t eng;
 static float eng_ram[SMG_RAM_FLOATS] PLAT_POOL;
+static va_t va;                          /* the VA source: rendered into the engine's LIVE ring */
+static volatile uint8_t va_on;
 static uint8_t freeze, hold;
 
 static float stretch_of(uint32_t v) { return v >= 127u ? 0.0f : fm_exp2f((float)v * (13.0f / 126.0f)); }
@@ -88,7 +106,12 @@ static void apply(void)
 {
     smg_params_t *p = &eng.p;
     const uint8_t *v = set.v;
-    p->source = set.slot == SLOT_PAD ? SMG_SRC_PAD : SMG_SRC_SAMPLE;
+    p->source = set.slot == SLOT_PAD ? SMG_SRC_PAD : set.slot == SLOT_VA ? SMG_SRC_LIVE : SMG_SRC_SAMPLE;
+    va_on = set.slot == SLOT_VA;
+    va.shape = unit(v[P_SHAPE]);
+    va.cutoff = unit(v[P_CUTOFF]);
+    va.reso = unit(v[P_RESO]);
+    va.motion = unit(v[P_MOTION]);
     p->size = v[P_SIZE];
     p->freeze = freeze;
     p->stretch = stretch_of(v[P_STRETCH]);
@@ -111,7 +134,8 @@ static void apply(void)
 static const smp_hdr_t *user_sample(void)
 {
     const smp_hdr_t *h = (const smp_hdr_t *)plat_data(SMP_HDR_OFF);
-    if (!h || h->magic != SMP_MAGIC || !h->len || h->len * 2u > SMP_MAX_BYTES || h->rate < 4000u || h->rate > 96000u)
+    if (!h || h->magic != SMP_MAGIC || !h->len || h->bytes > SMP_MAX_BYTES || h->rate < 4000u || h->rate > 96000u ||
+        h->bytes != (h->fmt == SMG_FMT_ADPCM ? SMG_ADPCM_SIZE(h->len) : h->fmt == SMG_FMT_PCM16 ? 2u * h->len : 0u))
         return 0;
     return h;
 }
@@ -131,13 +155,14 @@ static void ev_push(uint32_t type, uint32_t a, uint32_t b)
     ev_w = w + 1u;
 }
 static uint8_t uploading;                /* a sample is being written: USER plays the built-in meanwhile */
-static void source_set(uint32_t slot)    /* audio interrupt */
+static void source_set(uint32_t slot)    /* audio interrupt: a sample source's sample (PAD and VA keep the last) */
 {
     const smp_hdr_t *h = slot == SLOT_USER && !uploading ? user_sample() : 0;
+    const smg_builtin_t *b = &smg_builtin[slot >= SLOT_SMP0 && slot < SLOT_USER ? slot - SLOT_SMP0 : 0u];
     if (h)
-        smg_set_sample(&eng, (const int16_t *)plat_data(SMP_DATA_OFF), h->len, h->rate);
-    else
-        smg_set_sample(&eng, smg_source, SMG_SOURCE_LEN, SMG_SOURCE_RATE);
+        smg_set_sample(&eng, plat_data(SMP_DATA_OFF), h->len, h->rate, h->fmt);
+    else if (slot_sample(slot) || !eng.smp.len)
+        smg_set_sample(&eng, b->data, b->len, b->rate, SMG_FMT_ADPCM);
 }
 
 /* ---------------------------------------------------------------- MIDI in --- */
@@ -205,6 +230,10 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     midi_in();
     while (n) {
         uint32_t m = n < APP_BLOCK ? n : APP_BLOCK;
+        if (va_on) {                     /* VA: its newest block into the LIVE ring first */
+            va_render(&va, buf_l, m);
+            smg_live_push(&eng, buf_l, m);
+        }
         smg_render(&eng, buf_l, buf_r, m);
         for (i = 0; i < m; i++) {
             gain_now += (gain - gain_now) * 0.004f;          /* turning MASTER does not click */
@@ -229,8 +258,7 @@ static void preset_load(uint32_t i)
     for (k = 0; k < NP; k++)
         set.v[k] = p->v[k];
     set.preset = (uint8_t)(i % NPRESET);
-    if (set.slot != SLOT_USER || p->slot == SLOT_PAD)   /* a sample preset keeps a loaded sample */
-        set.slot = p->slot;
+    set.slot = p->slot;
 }
 
 static int settings_ok(void)
@@ -249,25 +277,26 @@ void app_init(void)
     if (plat_store_load(OBJ_SETTINGS, &set, sizeof set) != (int)sizeof set || !settings_ok()) {
         set.magic = SET_MAGIC;
         set.octave = 0;
-        set.slot = SLOT_CHOIR;
         preset_load(0);
     }
     if (set.slot == SLOT_USER && !user_sample())
         set.slot = SLOT_CHOIR;
     smg_init(&eng, eng_ram);
+    va_init(&va);
     apply();
     source_set(set.slot);
 }
 
 /* ------------------------------------------------------------- sample load --- */
 /* SysEx F0 7D 53 4D cmd ... F7 (tools/smuga_load.py); every command answered F0 7D 53 4D 7F cmd status F7.
- *   01 BEGIN  len (samples, 4 x 7 bits), rate (3 x 7 bits), name (up to 15 ASCII)
+ *   01 BEGIN  len (samples, 4 x 7 bits), rate (3 x 7 bits), format (SMG_FMT_*: 0 PCM16, 1 ADPCM), bytes (4 x 7
+ *             bits: 2 len, or SMG_ADPCM_SIZE(len)), name (up to 15 ASCII)
  *   02 DATA   byte offset (4 x 7 bits), then the bytes packed 7 in 8 (the first of each 8 holds the next seven's top
  *             bits); in order, at most 512 bytes a message
  *   03 END    CRC-32 of the bytes (5 x 7 bits): checked against the flash, then the header written
  * Status: 0 ok, 1 not now, 2 too long, 3 out of order, 4 the flash refused, 5 CRC mismatch */
 static struct {
-    uint32_t len, rate, next;            /* samples; Hz; the next byte expected */
+    uint32_t len, rate, fmt, bytes, next;   /* samples; Hz; SMG_FMT_*; the data's size; the next byte expected */
     char name[16];
     uint8_t buf[512];
 } up;
@@ -303,14 +332,17 @@ static void up_answer(uint32_t cmd, uint32_t status)
 static uint32_t up_begin(const uint8_t *p, uint32_t n)
 {
     uint32_t k;
-    if (n < 11u)
+    if (n < 16u)
         return 1;
     up.len = rd7(p + 4, 4);
     up.rate = rd7(p + 8, 3);
-    if (!up.len || up.len * 2u > SMP_MAX_BYTES || up.rate < 4000u || up.rate > 96000u)
+    up.fmt = p[11];
+    up.bytes = rd7(p + 12, 4);
+    if (!up.len || up.bytes > SMP_MAX_BYTES || up.rate < 4000u || up.rate > 96000u ||
+        up.bytes != (up.fmt == SMG_FMT_ADPCM ? SMG_ADPCM_SIZE(up.len) : up.fmt == SMG_FMT_PCM16 ? 2u * up.len : 0u))
         return 2;
-    for (k = 0; k < 15u && 11u + k < n; k++)
-        up.name[k] = (char)p[11u + k];
+    for (k = 0; k < 15u && 16u + k < n; k++)
+        up.name[k] = (char)p[16u + k];
     up.name[k] = 0;
     uploading = 1;
     if (set.slot == SLOT_USER)
@@ -335,7 +367,7 @@ static uint32_t up_data(const uint8_t *p, uint32_t n)
         for (b = 0; b < 7u && k < n && m < sizeof up.buf; b++)
             up.buf[m++] = (uint8_t)(p[k++] | ((top >> b) & 1u) << 7);
     }
-    if (off + m > up.len * 2u)
+    if (off + m > up.bytes)
         return 2;
     for (k = 0; k < m;) {                /* erase each sector as the data reaches it, then write */
         uint32_t at = SMP_DATA_OFF + off + k, room = 0x1000u - (at & 0xFFFu), w = m - k < room ? m - k : room;
@@ -354,11 +386,11 @@ static uint32_t up_end(const uint8_t *p, uint32_t n)
     smp_hdr_t h;
     uint32_t want, k;
     const uint8_t *d = plat_data(SMP_DATA_OFF);
-    if (!uploading || n < 9u || up.next != up.len * 2u)
+    if (!uploading || n < 9u || up.next != up.bytes)
         return 1;
     want = rd7(p + 4, 5);
     uploading = 0;
-    if (!d || crc32_add(0, d, up.len * 2u) != want) {
+    if (!d || crc32_add(0, d, up.bytes) != want) {
         app_say("LOAD", "FAILED");
         return 5;
     }
@@ -366,6 +398,8 @@ static uint32_t up_end(const uint8_t *p, uint32_t n)
     h.rate = up.rate;
     h.len = up.len;
     h.crc = want;
+    h.fmt = up.fmt;
+    h.bytes = up.bytes;
     for (k = 0; k < 16u; k++)
         h.name[k] = up.name[k];
     if (plat_data_write(SMP_HDR_OFF, &h, sizeof h))
@@ -474,6 +508,29 @@ static void value_text(uint32_t p, char *b)
         tenths_text(p == P_ATTACK ? attack_of(v) : release_of(v), b);
         text_cat(b, " S");
         break;
+    case P_SHAPE:
+        if (v == 0u)
+            text_cat(b, "SAW");
+        else if (v < 64u)
+            text_cat(b, "SAW-SQUARE");
+        else if (v == 64u)
+            text_cat(b, "SQUARE");
+        else {
+            int_text((int32_t)(50.0f - (unit(v) - 0.5f) * 80.0f + 0.5f), b);   /* va.c: 50 % .. 10 % */
+            text_cat(b, "% PULSE");
+        }
+        break;
+    case P_CUTOFF: {
+        float hz = va_cutoff_hz(unit(v));
+        if (hz < 1000.0f) {
+            int_text((int32_t)(hz + 0.5f), b);
+            text_cat(b, " HZ");
+        } else {
+            tenths_text(hz / 1000.0f, b);
+            text_cat(b, " KHZ");
+        }
+        break;
+    }
     case P_BAND:
         int_text((int32_t)(band_of(v) + 0.5f), b);
         text_cat(b, " CT");
@@ -509,7 +566,7 @@ static const uint8_t *page_params(void)
         return PAGE_SPACE;
     if (ui.page == PG_COLOR)
         return PAGE_COLOR;
-    return set.slot == SLOT_PAD ? PAGE_PAD : PAGE_SAMPLE;
+    return set.slot == SLOT_PAD ? PAGE_PAD : set.slot == SLOT_VA ? PAGE_VA : PAGE_SAMPLE;
 }
 
 void app_say(const char *a, const char *b)
@@ -543,7 +600,7 @@ static void speak(void)                  /* a screen reader that has just starte
     if (ann_on() && ann_where()) {
         t[0] = 0;
         text_cat(t, APP_NAME ". ");
-        text_cat(t, SLOT_NAME[set.slot]);
+        text_cat(t, slot_name(set.slot));
         text_cat(t, ". ");
         text_cat(t, PRESETS[set.preset].name);
         text_cat(t, ". ");
@@ -591,7 +648,7 @@ static void slot_set(uint32_t slot)
     if (slot == SLOT_USER)
         app_say("SOURCE", ((const smp_hdr_t *)plat_data(SMP_HDR_OFF))->name);
     else
-        app_say("SOURCE", SLOT_NAME[slot]);
+        app_say("SOURCE", slot_name(slot));
 }
 
 static int key_note(uint32_t k) { return 53 + (int)k + 12 * set.octave; }   /* key 0 is F3 */
@@ -766,7 +823,7 @@ static void draw_header(void)
         cv_text(x + 8, 6, &FONT_B, ui.msg[1], C_HI);
     } else {
         int32_t x = cv_text(8, 6, &FONT_B, APP_NAME, C_WHITE);
-        x = cv_text(x + 10, 10, &FONT_XS, SLOT_NAME[set.slot], C_HI);
+        x = cv_text(x + 10, 10, &FONT_XS, slot_name(set.slot), C_HI);
         cv_text(x + 8, 10, &FONT_XS, PRESETS[set.preset].name, C_GRAY);
         if (hold)
             cv_text(196, 2, &FONT_XS, "HOLD", C_HI);
@@ -790,7 +847,7 @@ static void draw_spectrum(void)
         if (h > 0)
             cv_rect((int32_t)b * 4, SPEC_H - h, 3, h, h > SPEC_H - 30 ? C_WHITE : C_HI);
     }
-    if (set.slot != SLOT_PAD && eng.smp.len) {
+    if (slot_sample(set.slot) && eng.smp.len) {
         int32_t x = (int32_t)(eng.scan / (float)eng.smp.len * 238.0f), x0 = (int32_t)(unit(set.v[P_POSITION]) * 238.0f);
         cv_rect(0, 0, 240, 2, C_LINE);
         cv_rect(x0, 0, 2, 4, C_GRAY);
@@ -810,15 +867,15 @@ static void draw_params(void)
         cv_text(x, 0, &FONT_XS, PAGE_NAME[k], k == ui.page ? C_HI : C_DIM);
     }
     for (k = 0; k < 4u; k++) {           /* K1 .. K4: name, value, a bar */
-        int32_t x = 4 + (int32_t)(k % 2u) * 120, y = 16 + (int32_t)(k / 2u) * 38, w;
+        int32_t x = 4 + (int32_t)(k % 2u) * 120, y = 14 + (int32_t)(k / 2u) * 33, w;
         uint32_t p = pp[k];
         int lit = ui.touched == k && now - ui.touched_at < 600u;
         cv_text(x, y, &FONT_XS, PDEF[p].name, lit ? C_WHITE : C_GRAY);
         value_text(p, t);
         cv_text(x, y + 12, &FONT_B, t, lit ? C_WHITE : C_HI);
         w = (int32_t)set.v[p] * 108 / PDEF[p].max;
-        cv_rect(x, y + 31, 108, 2, C_LINE);
-        cv_rect(x, y + 31, w, 2, lit ? C_WHITE : C_HI);
+        cv_rect(x, y + 29, 108, 2, C_LINE);
+        cv_rect(x, y + 29, w, 2, lit ? C_WHITE : C_HI);
     }
     {   /* the foot: octave, voices, the audio load */
         char f[40] = "OCT ";
@@ -833,7 +890,7 @@ static void draw_params(void)
         int_text((int32_t)plat_cpu_pct(), t);
         text_cat(f, t);
         text_cat(f, "%");
-        cv_text(4, 83, &FONT_XS, f, C_DIM);
+        cv_text(4, 81, &FONT_XS, f, C_DIM);
     }
     cv_blit(0, PAR_Y);
 }
