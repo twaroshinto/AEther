@@ -1,0 +1,62 @@
+# SMUGA's CI: the engine's tests and the whole firmware in the host simulator, then the real firmware (.fwsc)
+# with JieLi's toolchain and SDK, fetched as fm1-base's scripts fetch them.
+name: build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install Pillow
+      - run: sh tests/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: host-results
+          path: |
+            build/test/*.wav
+            app/build/host/*.png
+            app/build/host/*.wav
+
+  firmware:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install Pillow
+      - uses: actions/cache@v4
+        with:
+          path: ~/.jieli
+          key: jieli-${{ hashFiles('base/tools/get_toolchain.sh', 'base/bsp/tools/get_sdk.sh') }}
+      - name: JieLi toolchain and AC79 SDK
+        run: |
+          [ -e ~/.jieli/toolchain/pi32v2/bin/clang ] || sh base/tools/get_toolchain.sh ~/.jieli
+          [ -e ~/.jieli/ac79-sdk/cpu/wl82/tools/uboot.boot ] || sh base/bsp/tools/get_sdk.sh ~/.jieli/ac79-sdk
+      - name: Build
+        run: |
+          export JIELI_TOOLCHAIN=~/.jieli/toolchain AC79_SDK=~/.jieli/ac79-sdk
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then ./build.sh --release "${GITHUB_REF_NAME#v}"; else ./build.sh; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smuga-firmware
+          path: app/build/*.fwsc
+      - name: Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/*.fwsc

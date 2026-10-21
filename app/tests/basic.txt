@@ -1,0 +1,99 @@
+# SMUGA in fm1-base's host simulator: ./build.sh --host, then
+#   app/build/host/smuga_host app/tests/basic.txt app/build/host
+# (tests/run.sh runs every script here)
+wait 600
+expect slot 1
+expect preset 0
+expect page 0
+expect src_len 44100
+shot boot.png
+# a chord on the keys: C4 E4 G4 (keys 7, 11, 14)
+key 7 down 100
+key 11 down 90
+key 14 down 90
+wav choir.wav
+wait 4000
+expect voices 3
+expect_out USB 90 3C 64
+shot choir.png
+key 7 up
+key 11 up
+key 14 up
+wait 9000
+wavstop
+expect peak_db_min -24
+expect voices 0
+expect late 0
+# the pages and their knobs
+tap SEL
+wait 30
+expect page 1
+turn K1 5
+wait 100
+expect v8 85
+expect dirty 1
+tap FX
+wait 30
+expect page 2
+shot color.png
+tap EDIT
+wait 30
+expect page 0
+# STRETCH all the way: infinite
+spin K1 80
+wait 100
+expect v0 127
+# the PAD source (USER is skipped while no sample is loaded), a preset, HOLD
+turn ALGO 1
+wait 50
+expect slot 0
+turn PRESET 2
+wait 50
+expect preset 2
+expect slot 0
+tap PLAY
+wait 30
+expect hold 1
+tapkey 0 100
+tapkey 4 100
+wait 50
+expect voices 2
+wav pad.wav
+wait 4000
+wavstop
+expect peak_db_min -24
+expect voices 2
+shot pad.png
+# a new chord replaces the held one
+tapkey 9 100
+wait 4000
+tap PLAY
+wait 30
+expect hold 0
+wait 11000
+expect voices 0
+# FREEZE, octaves
+tap REC
+wait 30
+expect freeze 1
+tap OCT+
+wait 30
+expect octave 1
+# MIDI in: notes and CC1 (POSITION)
+midi 90 30 64
+wait 1000
+expect voices 1
+midi B0 01 40
+wait 50
+expect v1 64
+midi 80 30 00
+# settings kept across a reboot
+tap SAVE
+wait 30
+expect dirty 0
+reboot
+wait 600
+expect octave 1
+expect preset 2
+expect slot 0
+expect late 0

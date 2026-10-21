@@ -1,0 +1,21 @@
+# a sample loaded over USB-MIDI, the very messages tools/smuga_load.py sends (its --syx file, made by tests/run.sh)
+wait 600
+expect user_len 0
+sysex app/build/host/user.syx
+wait 50
+expect sysex_errors 0
+expect user_len 33075
+expect slot 2
+expect src_len 33075
+expect dirty 1
+key 7 down 100
+wav sysex.wav
+wait 3000
+wavstop
+expect peak_db_min -30
+key 7 up
+# a load cut short leaves nothing behind: BEGIN erases the header, END never comes
+sysex app/build/host/cut.syx
+wait 50
+expect user_len 0
+expect src_len 44100

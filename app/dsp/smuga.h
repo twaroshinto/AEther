@@ -1,0 +1,105 @@
+/* SPDX-License-Identifier: MPL-2.0
+ * Copyright (C) 2026 fm1-smuga contributors */
+/* SMUGA: a spectral "smear" synthesizer in the spirit of PaulStretch (Nasca Octavian Paul's extreme time stretch).
+ *
+ * Every frame is built in the frequency domain: a magnitude spectrum (from a sample scanned very slowly, or from a
+ * PADsynth-like harmonic profile of each held note), then random phases for every bin, an inverse FFT and a sine
+ * window, overlapped by half a frame. Random phases are what turns any sound into a smooth, endless cloud.
+ *
+ * Polyphony is almost free: all voices are summed into ONE magnitude spectrum, so there is one inverse FFT per frame
+ * whatever the number of notes. Stereo is free too: the left and right channels are two independent random-phase
+ * frames packed into one complex FFT (the real part is the left, the imaginary part the right).
+ *
+ * The engine never allocates: the caller gives it SMG_RAM_FLOATS floats (on the FM-1, the .pool RAM). Its work is
+ * split into small steps spread over the audio blocks of one hop (smg_render does it), so no block carries a whole
+ * FFT. Plain C99 and float only: no double, no libc (fastmath.h), so the same file runs on the FM-1 (pi32v2 FPU),
+ * in fm1-base's host simulator and in the tests. */
+#pragma once
+#include <stdint.h>
+
+#define SMG_FS 44100u
+#define SMG_NMAX 8192u                   /* the longest frame: 186 ms at 44.1 kHz */
+#define SMG_NMIN 1024u
+#define SMG_VOICES 8u
+#define SMG_DISP 60u                     /* bands of the display spectrum (log-spaced, 40 Hz .. 16 kHz) */
+
+/* the RAM the engine needs, in floats: the complex FFT buffer (2N), the source and output magnitudes (N/2 + 1 each),
+ * the play and tail buffers of both channels (N/2 each), the synthesis window (N/2), a quarter sine (N/4 + 1) */
+#define SMG_RAM_FLOATS (2u * SMG_NMAX + 2u * (SMG_NMAX / 2u + 1u) + 4u * (SMG_NMAX / 2u) + SMG_NMAX / 2u + \
+                        SMG_NMAX / 4u + 1u)
+
+enum { SMG_SRC_PAD, SMG_SRC_SAMPLE, SMG_NSRC };
+enum { SMG_SIZE_1K, SMG_SIZE_2K, SMG_SIZE_4K, SMG_SIZE_8K, SMG_NSIZE };
+
+typedef struct {
+    const int16_t *pcm;                  /* mono, 16-bit; 0 = none */
+    uint32_t len;                        /* samples */
+    uint32_t rate;                       /* Hz (any: read with interpolation) */
+} smg_sample_t;
+
+/* the sound's parameters: the main loop writes them, the engine takes a copy at the start of each frame */
+typedef struct {
+    uint8_t source;                      /* SMG_SRC_* */
+    uint8_t size;                        /* SMG_SIZE_*: the frame, the smear's length */
+    uint8_t freeze;                      /* sample: the scan stops, the spectrum held */
+    uint8_t rsv;
+    /* SAMPLE */
+    float stretch;                       /* 1 .. 10000: how many times slower than the original; 0 = infinite */
+    float position;                      /* 0 .. 1: where the scan starts (and loops back to) */
+    float spread;                        /* 0 .. 1: spectral blur, tones into noise bands */
+    /* PAD */
+    float bright;                        /* 0 .. 1: the harmonics' slope */
+    float bandwidth;                     /* cents, 1 .. 300: each harmonic's width */
+    float inharm;                        /* 0 .. 1: stiff-string stretch of the harmonics */
+    float odd;                           /* 0 .. 1: the even harmonics taken out (hollow) */
+    /* both */
+    float tilt;                          /* -1 .. 1: -6 .. +6 dB per octave around 500 Hz */
+    float sub;                           /* 0 .. 1: an octave below, mixed in */
+    float shimmer;                       /* 0 .. 1: an octave above, mixed in */
+    float attack, release;               /* seconds */
+    float width;                         /* 0 .. 1: mono .. two independent channels */
+    float level;                         /* the output's gain */
+} smg_params_t;
+
+typedef struct {
+    int8_t note;                         /* MIDI note, -1 = free */
+    uint8_t gate;                        /* held */
+    uint8_t rsv[2];
+    float vel;                           /* 0 .. 1 */
+    float level;                         /* the envelope, per frame */
+    uint32_t age;                        /* frames since its note-on (stealing) */
+} smg_voice_t;
+
+typedef struct {
+    smg_params_t p;                      /* written by the caller */
+    smg_params_t fp;                     /* this frame's copy */
+    smg_sample_t smp;                    /* the source sample (smg_set_sample) */
+    smg_voice_t voice[SMG_VOICES];
+    float *work, *src, *acc, *play[2], *tail[2], *win, *qs;
+    uint32_t n, hop, n_win;              /* the frame being built, its hop, the window's frame */
+    uint32_t play_pos, play_len;
+    uint8_t st, layer, src_ok, rsv;      /* the job: state, the voice's layer, the source spectrum valid */
+    uint32_t i, j, h, v;                 /* the job's indices */
+    float lay_ratio, lay_gain, lay_norm; /* the layer being added */
+    float scan;                          /* the scan position, in source samples */
+    float scan_start;                    /* where it loops back to */
+    float last_position;
+    uint32_t rng;
+    uint32_t units, units_frame, units_est;   /* work done: this step, this frame, the estimate per frame */
+    uint32_t units_bound, units_peak;    /* the most this frame can take (from its parameters); the most any took */
+    uint32_t frames, late;               /* frames made; frames that were not ready in time (finished at once) */
+    float disp_acc[SMG_DISP];
+    float disp[SMG_DISP];                /* the last frame's spectrum by band, linear (for a screen) */
+} smg_t;
+
+void smg_init(smg_t *e, float *ram);    /* ram: SMG_RAM_FLOATS floats; e->p gets defaults */
+void smg_defaults(smg_params_t *p);
+void smg_set_sample(smg_t *e, const int16_t *pcm, uint32_t len, uint32_t rate);   /* audio context or stopped */
+void smg_note_on(smg_t *e, int32_t note, float vel);    /* audio context */
+void smg_note_off(smg_t *e, int32_t note);
+void smg_all_off(smg_t *e);              /* release every voice */
+void smg_panic(smg_t *e);                /* silence now */
+/* n frames of output (any n); the frame work is done here too, a share of it each call */
+void smg_render(smg_t *e, float *l, float *r, uint32_t n);
+uint32_t smg_size_n(uint32_t size);      /* SMG_SIZE_* -> frame length */
+int smg_active(const smg_t *e);          /* voices sounding */

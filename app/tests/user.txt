@@ -1,0 +1,26 @@
+# a sample loaded into the flash (as tools/smuga_load.py writes it) becomes the USER source.
+# tests/run.sh makes app/build/host/user.bin first: tools/smuga_load.py tests/data/sweep.wav --image ...
+wait 600
+expect user_len 0
+expect src_len 44100
+# USER is skipped while nothing is loaded
+turn ALGO 1
+wait 50
+expect slot 0
+# (0x9B000, not 0x97000: fm1-base's simulator writes "data" at OFFSET - PLAT_DATA_LO into an area plat_data reads
+# from PLAT_XDATA0_LO, 0x4000 lower; this lands the image where SMUGA reads 0x97000)
+data app/build/host/user.bin 0x9B000
+wait 10
+expect user_len 33075
+turn ALGO 2
+wait 50
+expect slot 2
+expect src_len 33075
+key 7 down 100
+wav user.wav
+wait 3000
+wavstop
+expect peak_db_min -30
+shot user.png
+key 7 up
+expect late 0
