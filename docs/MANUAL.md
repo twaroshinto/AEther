@@ -43,13 +43,17 @@ FX dla COLOR.
 
 - **Góra:** nazwa, źródło (pomarańczowe) i preset (szary). Po prawej HOLD i FREEZE, gdy są włączone. Po każdym
   ruchu gałki przez chwilę widać tu jej nazwę i wartość.
+
 - **Środek:** zależy od strony. Zwykle to widmo ostatniej ramki, od 40 Hz do 16 kHz, z liniami co oktawę. Przy
   samplu nad widmem jest pasek skanu: szary znacznik pokazuje POSITION, jasny miejsce, które gra teraz. Przy HARM
   widać harmoniczne, a na stronach modulacji przebieg LFO albo obwiedni.
+
 - **Nazwa strony** z kropkami po prawej: jedna kropka na każdą stronę, którą ma bieżące źródło, a jasna to ta,
   na której jesteś.
+
 - **Cztery parametry** z wartością i paskiem. **Biały znacznik na pasku** oznacza, że parametr jest modulowany i
   pokazuje, gdzie jest w tej chwili. Sama gałka trzyma swoją wartość.
+
 - **Stopka:** oktawa, liczba brzmiących głosów (do 8) i obciążenie procesora.
 
 ## Źródła (ALGORITHM)
@@ -147,6 +151,7 @@ Harmoniczne innych obwiedni są przygaszone na pomarańczowo.
 | 4 | **SUSTAIN** | 0–100 % | poziom, na którym zostaje |
 
 Przykłady:
+
 - **ENV A = H3, ATTACK 0,2 s, DECAY 0,6 s, SUSTAIN 0 %** (lewy zrzut): trzecia harmoniczna błyska na początku nuty i znika.
 - **ENV B = HIGH 13+, ATTACK 4 s, SUSTAIN 100 %** (prawy zrzut): wysokie harmoniczne wchodzą powoli i barwa się otwiera.
 - **TARGET = H1, SUSTAIN 30 %**: podstawa cichnie po ataku, zostaje „powietrze”.
@@ -198,6 +203,7 @@ Silnik bierze nowe wartości raz na ramkę, czyli co 11–93 ms zależnie od SIZ
 będzie więc schodkowe. Ta estetyka lubi tempa poniżej 1 Hz.
 
 Kilka pomysłów:
+
 - **LFO na POSITION** (SINE, kilka sekund) przy STRETCH INF przewija sample tam i z powrotem.
 - **LFO na FOCUS** (TRIANGLE, wolno) przy BOOST +12 dB daje „samogłoski” przesuwające się po harmonicznych (preset HARM VOWELS).
 - **DRIFT na POSITION** sprawia, że skan błądzi po samplu w nieprzewidywalny sposób (preset DRIFT FOG).
@@ -251,10 +257,13 @@ jest tylko jedno miejsce zapisu.
 
 - **HOLD (PLAY):** zagraj akord, puść, a on trwa. Następny akord zastępuje poprzedni. Ponowne PLAY wyłącza HOLD
   i puszcza nuty.
+
 - **FREEZE (REC):** zatrzymuje widmo sampla albo VA w bieżącej chwili. Nuty, obwiednie i SPACE grają dalej, a
   skan rusza z miejsca po wyłączeniu FREEZE. Przy PAD i HARM widmo i tak powstaje z gałek, więc FREEZE nic nie zmienia.
+
 - **Opóźnienie:** nuta zaczyna brzmieć w następnej ramce, po ~100–140 ms przy SIZE 186 ms i ~20 ms przy 23 ms.
   To część charakteru, nie błąd.
+
 - **Polifonia:** 8 głosów. Dziewiąta nuta zabiera najcichszy głos.
 
 ## MIDI
