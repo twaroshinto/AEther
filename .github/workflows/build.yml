@@ -1,4 +1,4 @@
-# SMUGA's CI: the engine's tests and the whole firmware in the host simulator, then the real firmware (.fwsc)
+# AETHER's CI: the engine's tests and the whole firmware in the host simulator, then the real firmware (.fwsc)
 # with JieLi's toolchain and SDK, fetched as fm1-base's scripts fetch them.
 name: build
 on:
@@ -45,7 +45,7 @@ jobs:
       - run: ./build.sh --web
       - uses: actions/upload-artifact@v4
         with:
-          name: smuga-emulator
+          name: aether-emulator
           path: |
             app/build/emu/index.html
             app/build/emu/worklet.js
@@ -66,18 +66,28 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.jieli
-          key: jieli-${{ hashFiles('base/tools/get_toolchain.sh', 'base/bsp/tools/get_sdk.sh') }}
+          key: jieli-v2-${{ hashFiles('base/tools/get_toolchain.sh', 'base/bsp/tools/get_sdk.sh') }}
       - name: JieLi toolchain and AC79 SDK
         run: |
           [ -e ~/.jieli/toolchain/pi32v2/bin/clang ] || sh base/tools/get_toolchain.sh ~/.jieli
-          [ -e ~/.jieli/ac79-sdk/cpu/wl82/tools/uboot.boot ] || sh base/bsp/tools/get_sdk.sh ~/.jieli/ac79-sdk
+          # the AC79 SDK: only the three files the package takes (uboot.boot, cfg_tool.bin, eq_cfg_hw.bin), from
+          # JieLi's Gitee repository at the tested tag (tools/build.py checks their SHA-256), else fm1-base's script
+          if [ ! -e ~/.jieli/ac79-sdk/cpu/wl82/tools/uboot.boot ]; then
+            rm -rf ~/.jieli/ac79-sdk
+            git clone -q --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 --filter=blob:none --sparse \
+                https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/.jieli/ac79-sdk &&
+              git -C ~/.jieli/ac79-sdk sparse-checkout set --no-cone /LICENSE /cpu/wl82/tools/uboot.boot \
+                /cpu/wl82/tools/cfg_tool.bin /cpu/wl82/tools/cfg/eq_cfg_hw.bin ||
+              { rm -rf ~/.jieli/ac79-sdk; sh base/bsp/tools/get_sdk.sh ~/.jieli/ac79-sdk; }
+          fi
+          ls -la ~/.jieli/ac79-sdk/cpu/wl82/tools
       - name: Build
         run: |
           export JIELI_TOOLCHAIN=~/.jieli/toolchain AC79_SDK=~/.jieli/ac79-sdk
           if [ "${GITHUB_REF_TYPE}" = tag ]; then ./build.sh --release "${GITHUB_REF_NAME#v}"; else ./build.sh; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: smuga-firmware
+          name: aether-firmware
           path: app/build/*.fwsc
       - name: Release
         if: github.ref_type == 'tag'

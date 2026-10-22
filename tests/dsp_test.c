@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-smuga contributors */
-/* SMUGA's engine on its own, on this machine: scenarios rendered to WAV files and checked.
+ * Copyright (C) 2026 fm1-aether contributors */
+/* AETHER's engine on its own, on this machine: scenarios rendered to WAV files and checked.
  *
  *   tests/run.sh               builds this with the generated source and runs it
  *   dsp_test OUTDIR            the WAVs go to OUTDIR
@@ -13,13 +13,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "smuga.h"
+#include "aether.h"
 #include "va.h"
-#include "smuga_source.h"
+#include "aether_source.h"
 
 #define BLOCK 256u                       /* the firmware's APP_BLOCK */
-static float ram[SMG_RAM_FLOATS];
-static smg_t eng;
+static float ram[AET_RAM_FLOATS];
+static aet_t eng;
 static int fails;
 static const char *outdir = ".";
 static va_t *live_va;                    /* the VA source, pushed into LIVE before each block (as app_render does) */
@@ -42,7 +42,7 @@ typedef struct {
 
 static void rec_run(rec_t *rc, float secs)
 {
-    uint32_t want = (uint32_t)(secs * (float)SMG_FS), done = 0;
+    uint32_t want = (uint32_t)(secs * (float)AET_FS), done = 0;
     if (rc->n + want > rc->cap) {
         rc->cap = (rc->n + want) * 2u;
         rc->l = realloc(rc->l, rc->cap * sizeof(float));
@@ -52,10 +52,10 @@ static void rec_run(rec_t *rc, float secs)
         uint32_t n = want - done < BLOCK ? want - done : BLOCK;
         if (live_va) {
             va_render(live_va, rc->l + rc->n, n);
-            smg_live_push(&eng, rc->l + rc->n, n);
+            aet_live_push(&eng, rc->l + rc->n, n);
             eng.p.lp_hz = live_va->fc_now;   /* the VA's filter: the engine's spectral low-pass */
         }
-        smg_render(&eng, rc->l + rc->n, rc->r + rc->n, n);
+        aet_render(&eng, rc->l + rc->n, rc->r + rc->n, n);
         rc->n += n;
         done += n;
     }
@@ -73,7 +73,7 @@ static void rec_wav(const rec_t *rc, const char *name)
 #define W32(v) do { uint32_t x_ = (v); fwrite(&x_, 4, 1, f); } while (0)
 #define W16(v) do { uint16_t x_ = (uint16_t)(v); fwrite(&x_, 2, 1, f); } while (0)
     fwrite("RIFF", 1, 4, f); W32(36u + bytes); fwrite("WAVEfmt ", 1, 8, f);
-    W32(16); W16(1); W16(2); W32(SMG_FS); W32(SMG_FS * 4u); W16(4); W16(16);
+    W32(16); W16(1); W16(2); W32(AET_FS); W32(AET_FS * 4u); W16(4); W16(16);
     fwrite("data", 1, 4, f); W32(bytes);
     for (i = 0; i < rc->n; i++) {
         int32_t a = (int32_t)lrintf(rc->l[i] * 32767.0f), b = (int32_t)lrintf(rc->r[i] * 32767.0f);
@@ -81,13 +81,13 @@ static void rec_wav(const rec_t *rc, const char *name)
         W16(b < -32768 ? -32768 : b > 32767 ? 32767 : b);
     }
     fclose(f);
-    printf("  wav %s (%.1f s)\n", path, (double)rc->n / SMG_FS);
+    printf("  wav %s (%.1f s)\n", path, (double)rc->n / AET_FS);
 }
 
 /* RMS in dBFS of [t0, t1) seconds, both channels */
 static double rms_db(const rec_t *rc, double t0, double t1)
 {
-    uint32_t a = (uint32_t)(t0 * SMG_FS), b = (uint32_t)(t1 * SMG_FS), i;
+    uint32_t a = (uint32_t)(t0 * AET_FS), b = (uint32_t)(t1 * AET_FS), i;
     double s = 0.0;
     if (b > rc->n)
         b = rc->n;
@@ -118,10 +118,10 @@ static void check_sane(const rec_t *rc, const char *what)
 /* the strongest frequency in [t0, t1) of the left channel, by a Goertzel sweep in 2 Hz steps over [lo, hi] */
 static double peak_hz(const rec_t *rc, double t0, double t1, double lo, double hi)
 {
-    uint32_t a = (uint32_t)(t0 * SMG_FS), b = (uint32_t)(t1 * SMG_FS), i;
+    uint32_t a = (uint32_t)(t0 * AET_FS), b = (uint32_t)(t1 * AET_FS), i;
     double best = 0.0, best_f = 0.0, f;
     for (f = lo; f <= hi; f += 2.0) {
-        double w = 2.0 * M_PI * f / SMG_FS, c = 2.0 * cos(w), s1 = 0.0, s2 = 0.0, p;
+        double w = 2.0 * M_PI * f / AET_FS, c = 2.0 * cos(w), s1 = 0.0, s2 = 0.0, p;
         for (i = a; i < b; i++) {
             double s0 = rc->l[i] + c * s1 - s2;
             s2 = s1;
@@ -138,10 +138,10 @@ static double peak_hz(const rec_t *rc, double t0, double t1, double lo, double h
 
 static void reset(void)
 {
-    smg_init(&eng, ram);
+    aet_init(&eng, ram);
     live_va = 0;
-    smg_set_sample(&eng, smg_builtin[0].data, smg_builtin[0].len, smg_builtin[0].rate, SMG_FMT_ADPCM);
-    smg_set_env(&eng, smg_builtin[0].env, smg_builtin[0].env_frames, smg_builtin[0].env_hop);
+    aet_set_sample(&eng, aet_builtin[0].data, aet_builtin[0].len, aet_builtin[0].rate, AET_FMT_ADPCM);
+    aet_set_env(&eng, aet_builtin[0].env, aet_builtin[0].env_frames, aet_builtin[0].env_hop);
 }
 
 static void rec_free(rec_t *rc) { free(rc->l); free(rc->r); }
@@ -154,9 +154,9 @@ static void t_sample_stretch(void)
     reset();
     eng.p.attack = 0.5f;
     eng.p.release = 2.0f;
-    smg_note_on(&eng, 60, 0.9f);
+    aet_note_on(&eng, 60, 0.9f);
     rec_run(&rc, 8.0f);
-    smg_note_off(&eng, 60);
+    aet_note_off(&eng, 60);
     rec_run(&rc, 4.0f);
     check_sane(&rc, "stretch");
     CHECK(rms_db(&rc, 1.5, 7.5) > -30.0, "stretch: too quiet while held (%.1f dB)", rms_db(&rc, 1.5, 7.5));
@@ -173,49 +173,49 @@ static void t_pad_chord(void)
     rec_t rc = {0};
     printf("pad: an A minor 9 chord, wide bands, shimmer\n");
     reset();
-    eng.p.source = SMG_SRC_PAD;
+    eng.p.source = AET_SRC_PAD;
     eng.p.bandwidth = 60.0f;
     eng.p.shimmer = 0.3f;
     eng.p.sub = 0.2f;
     eng.p.attack = 1.5f;
     eng.p.release = 3.0f;
-    smg_note_on(&eng, 45, 0.8f);
-    smg_note_on(&eng, 57, 0.7f);
-    smg_note_on(&eng, 60, 0.7f);
-    smg_note_on(&eng, 64, 0.7f);
-    smg_note_on(&eng, 71, 0.6f);
+    aet_note_on(&eng, 45, 0.8f);
+    aet_note_on(&eng, 57, 0.7f);
+    aet_note_on(&eng, 60, 0.7f);
+    aet_note_on(&eng, 64, 0.7f);
+    aet_note_on(&eng, 71, 0.6f);
     rec_run(&rc, 7.0f);
-    smg_all_off(&eng);
+    aet_all_off(&eng);
     rec_run(&rc, 6.0f);
     check_sane(&rc, "pad");
     CHECK(rms_db(&rc, 2.0, 6.5) > -30.0, "pad: too quiet (%.1f dB)", rms_db(&rc, 2.0, 6.5));
     CHECK(rms_db(&rc, 12.0, 13.0) < -50.0, "pad: not silent after the release (%.1f dB)", rms_db(&rc, 12.0, 13.0));
-    CHECK(smg_active(&eng) == 0, "pad: %d voices left after the release", smg_active(&eng));
+    CHECK(aet_active(&eng) == 0, "pad: %d voices left after the release", aet_active(&eng));
     CHECK(eng.late == 0, "pad: %u frames late", eng.late);
     printf("  held %.1f dBFS, units/frame %u\n", rms_db(&rc, 2.0, 6.5), eng.units_est);
     rec_wav(&rc, "pad_chord.wav");
     rec_free(&rc);
 }
 
-static int16_t sine_src[SMG_FS];
+static int16_t sine_src[AET_FS];
 static void t_pitch(void)
 {
     rec_t rc = {0};
     uint32_t i;
     double f1, f2;
     printf("pitch: a 440 Hz sine stretched keeps 440 Hz; a key an octave up gives 880 Hz\n");
-    for (i = 0; i < SMG_FS; i++)
-        sine_src[i] = (int16_t)lrint(16000.0 * sin(2.0 * M_PI * 440.0 * i / SMG_FS));
-    smg_init(&eng, ram);
-    smg_set_sample(&eng, sine_src, SMG_FS, SMG_FS, SMG_FMT_PCM16);
+    for (i = 0; i < AET_FS; i++)
+        sine_src[i] = (int16_t)lrint(16000.0 * sin(2.0 * M_PI * 440.0 * i / AET_FS));
+    aet_init(&eng, ram);
+    aet_set_sample(&eng, sine_src, AET_FS, AET_FS, AET_FMT_PCM16);
     eng.p.attack = 0.05f;
     eng.p.release = 0.1f;
     eng.p.width = 0.0f;
-    smg_note_on(&eng, 60, 1.0f);
+    aet_note_on(&eng, 60, 1.0f);
     rec_run(&rc, 2.0f);
-    smg_note_off(&eng, 60);
+    aet_note_off(&eng, 60);
     rec_run(&rc, 1.0f);
-    smg_note_on(&eng, 72, 1.0f);
+    aet_note_on(&eng, 72, 1.0f);
     rec_run(&rc, 2.0f);
     check_sane(&rc, "pitch");
     f1 = peak_hz(&rc, 0.8, 1.8, 200.0, 1200.0);
@@ -241,32 +241,32 @@ static void t_torture(void)
     eng.p.shimmer = 1.0f;
     eng.p.level = 2.0f;
     for (i = 0; i < 12; i++)
-        smg_note_on(&eng, 40 + i * 5, 1.0f);
+        aet_note_on(&eng, 40 + i * 5, 1.0f);
     rec_run(&rc, 0.5f);
-    for (i = 0; i < SMG_NSIZE * 2; i++) {
-        eng.p.size = (uint8_t)(i % SMG_NSIZE);
+    for (i = 0; i < AET_NSIZE * 2; i++) {
+        eng.p.size = (uint8_t)(i % AET_NSIZE);
         eng.p.spread = (float)(i & 1);
         eng.p.tilt = i & 2 ? 1.0f : -1.0f;
         eng.p.freeze = (uint8_t)((i >> 1) & 1);
         eng.p.stretch = i & 1 ? 0.0f : 10000.0f;
-        eng.p.position = (float)i / (SMG_NSIZE * 2);
+        eng.p.position = (float)i / (AET_NSIZE * 2);
         rec_run(&rc, 0.37f);
     }
-    eng.p.source = SMG_SRC_PAD;
+    eng.p.source = AET_SRC_PAD;
     eng.p.bandwidth = 300.0f;
     eng.p.inharm = 1.0f;
     eng.p.bright = 1.0f;
-    for (i = 0; i < SMG_NSIZE; i++) {
+    for (i = 0; i < AET_NSIZE; i++) {
         eng.p.size = (uint8_t)i;
         rec_run(&rc, 0.4f);
     }
-    smg_set_sample(&eng, 0, 0, 0, 0);    /* no sample: silence, no crash */
-    eng.p.source = SMG_SRC_SAMPLE;
+    aet_set_sample(&eng, 0, 0, 0, 0);    /* no sample: silence, no crash */
+    eng.p.source = AET_SRC_SAMPLE;
     rec_run(&rc, 0.5f);
-    smg_panic(&eng);
+    aet_panic(&eng);
     rec_run(&rc, 0.3f);
     check_sane(&rc, "torture");
-    CHECK(rms_db(&rc, rc.n / (double)SMG_FS - 0.2, rc.n / (double)SMG_FS) < -90.0, "torture: not silent after panic");
+    CHECK(rms_db(&rc, rc.n / (double)AET_FS - 0.2, rc.n / (double)AET_FS) < -90.0, "torture: not silent after panic");
     CHECK(eng.late == 0, "torture: %u frames late", eng.late);
     printf("  frames %u, late %u\n", eng.frames, eng.late);
     rec_wav(&rc, "torture.wav");
@@ -284,7 +284,7 @@ static void t_budget(void)
     eng.p.sub = 0.5f;
     eng.p.shimmer = 0.5f;
     for (i = 0; i < 8; i++)
-        smg_note_on(&eng, 48 + i * 3, 0.8f);
+        aet_note_on(&eng, 48 + i * 3, 0.8f);
     rec_run(&rc, 5.0f);
     CHECK(eng.late == 0, "budget: %u frames late", eng.late);
     CHECK(eng.units_peak <= eng.units_bound, "budget: a frame took %u units, over its bound %u", eng.units_peak,
@@ -305,15 +305,15 @@ static void t_va(void)
     va_init(&v);
     v.cutoff = 0.6f;
     live_va = &v;
-    eng.p.source = SMG_SRC_LIVE;
+    eng.p.source = AET_SRC_LIVE;
     eng.p.attack = 0.05f;
     eng.p.release = 0.1f;
     eng.p.width = 0.0f;
-    smg_note_on(&eng, 60, 1.0f);
+    aet_note_on(&eng, 60, 1.0f);
     rec_run(&rc, 2.0f);
-    smg_note_off(&eng, 60);
+    aet_note_off(&eng, 60);
     rec_run(&rc, 1.0f);
-    smg_note_on(&eng, 72, 1.0f);
+    aet_note_on(&eng, 72, 1.0f);
     rec_run(&rc, 2.0f);
     f1 = peak_hz(&rc, 0.8, 1.8, 150.0, 1200.0);
     f2 = peak_hz(&rc, 3.8, 4.8, 150.0, 1200.0);
@@ -323,9 +323,9 @@ static void t_va(void)
     CHECK(rms_db(&rc, 0.8, 1.8) > -30.0, "va: too quiet (%.1f dB)", rms_db(&rc, 0.8, 1.8));
     v.motion = 1.0f;                     /* everything moving, resonance at its peak, every shape */
     eng.p.lp_reso = 1.0f;
-    eng.p.size = SMG_SIZE_1K;
-    smg_note_on(&eng, 36, 1.0f);
-    smg_note_on(&eng, 84, 1.0f);
+    eng.p.size = AET_SIZE_1K;
+    aet_note_on(&eng, 36, 1.0f);
+    aet_note_on(&eng, 84, 1.0f);
     for (int i = 0; i <= 8; i++) {
         v.shape = (float)i / 8.0f;
         v.cutoff = (float)(i % 3) / 2.0f;
@@ -344,29 +344,29 @@ static void t_builtins(void)
 {
     uint32_t b;
     printf("builtins: each built-in sample stretched on a C major chord\n");
-    for (b = 0; b < SMG_NBUILTIN; b++) {
+    for (b = 0; b < AET_NBUILTIN; b++) {
         rec_t rc = {0};
         char name[64];
         reset();
-        smg_set_sample(&eng, smg_builtin[b].data, smg_builtin[b].len, smg_builtin[b].rate, SMG_FMT_ADPCM);
-        smg_set_env(&eng, smg_builtin[b].env, smg_builtin[b].env_frames, smg_builtin[b].env_hop);
+        aet_set_sample(&eng, aet_builtin[b].data, aet_builtin[b].len, aet_builtin[b].rate, AET_FMT_ADPCM);
+        aet_set_env(&eng, aet_builtin[b].env, aet_builtin[b].env_frames, aet_builtin[b].env_hop);
         eng.p.stretch = 20.0f;
         eng.p.attack = 0.3f;
-        smg_note_on(&eng, 48, 0.8f);
-        smg_note_on(&eng, 60, 0.8f);
-        smg_note_on(&eng, 64, 0.8f);
+        aet_note_on(&eng, 48, 0.8f);
+        aet_note_on(&eng, 60, 0.8f);
+        aet_note_on(&eng, 64, 0.8f);
         rec_run(&rc, 6.0f);
-        check_sane(&rc, smg_builtin[b].name);
-        printf("  %-7s %.1f dBFS\n", smg_builtin[b].name, rms_db(&rc, 1.0, 6.0));
-        CHECK(rms_db(&rc, 1.0, 6.0) > -32.0, "%s: too quiet (%.1f dB)", smg_builtin[b].name, rms_db(&rc, 1.0, 6.0));
-        CHECK(eng.late == 0, "%s: %u frames late", smg_builtin[b].name, eng.late);
-        snprintf(name, sizeof name, "builtin_%s.wav", smg_builtin[b].name);
+        check_sane(&rc, aet_builtin[b].name);
+        printf("  %-7s %.1f dBFS\n", aet_builtin[b].name, rms_db(&rc, 1.0, 6.0));
+        CHECK(rms_db(&rc, 1.0, 6.0) > -32.0, "%s: too quiet (%.1f dB)", aet_builtin[b].name, rms_db(&rc, 1.0, 6.0));
+        CHECK(eng.late == 0, "%s: %u frames late", aet_builtin[b].name, eng.late);
+        snprintf(name, sizeof name, "builtin_%s.wav", aet_builtin[b].name);
         rec_wav(&rc, name);
         rec_free(&rc);
     }
 }
 
-/* the Python ADPCM encoder (tools/smuga_load.py, the same as the built-ins') against the engine's decoder: the same
+/* the Python ADPCM encoder (tools/aether_load.py, the same as the built-ins') against the engine's decoder: the same
  * sweep as PCM16 and as ADPCM (flash images from tests/run.sh), read forward and with jumps back */
 static uint8_t *slurp(const char *path, long *n)
 {
@@ -396,19 +396,19 @@ static void t_adpcm(const char *pcm_img, const char *adpcm_img)
         return;
     }
     len = (uint32_t)(np - 0x1000) / 2u;
-    CHECK((uint32_t)(na - 0x1000) == SMG_ADPCM_SIZE(len), "adpcm: %ld bytes for %u samples", na - 0x1000, len);
-    smg_init(&eng, ram);
-    smg_set_sample(&eng, a + 0x1000, len, 22050, SMG_FMT_ADPCM);
+    CHECK((uint32_t)(na - 0x1000) == AET_ADPCM_SIZE(len), "adpcm: %ld bytes for %u samples", na - 0x1000, len);
+    aet_init(&eng, ram);
+    aet_set_sample(&eng, a + 0x1000, len, 22050, AET_FMT_ADPCM);
     fwd = malloc(len * sizeof *fwd);
     for (i = 0; i < len; i++) {
         int32_t x = (int16_t)(p[0x1000 + 2 * i] | p[0x1000 + 2 * i + 1] << 8);
-        fwd[i] = smg_sample_read(&eng, i);
+        fwd[i] = aet_sample_read(&eng, i);
         sig += (double)x * x;
         err += (double)(x - fwd[i]) * (x - fwd[i]);
     }
     for (i = 0; i < 4000u; i++) {        /* random access (backwards, across blocks) gives the same values */
         uint32_t k = (uint32_t)(((uint64_t)i * 2654435761u) % len);
-        if (smg_sample_read(&eng, k) != fwd[k])
+        if (aet_sample_read(&eng, k) != fwd[k])
             mism++;
     }
     printf("  %u samples, SNR %.1f dB, random reads that differ: %u\n", len, 10.0 * log10(sig / (err + 1e-9)), mism);
@@ -454,7 +454,7 @@ static void sixth_octaves(const rec_t *rc, double t0, double t1, double *db)
 {
     static double re[8192], im[8192];
     double e[NB3] = {0};
-    uint32_t a = (uint32_t)(t0 * SMG_FS), b = (uint32_t)(t1 * SMG_FS), i, k, nb;
+    uint32_t a = (uint32_t)(t0 * AET_FS), b = (uint32_t)(t1 * AET_FS), i, k, nb;
     for (i = a; i + 8192u <= b; i += 4096u) {
         for (k = 0; k < 8192u; k++) {
             double w = 0.5 - 0.5 * cos(2.0 * M_PI * k / 8192.0);
@@ -463,7 +463,7 @@ static void sixth_octaves(const rec_t *rc, double t0, double t1, double *db)
         }
         fft(re, im, 8192u);
         for (k = 1; k < 4096u; k++) {
-            double f = k * (double)SMG_FS / 8192.0;
+            double f = k * (double)AET_FS / 8192.0;
             for (nb = 0; nb < NB3; nb++)
                 if (f >= 5000.0 * pow(3.2, (double)nb / NB3) && f < 5000.0 * pow(3.2, (nb + 1.0) / NB3))
                     e[nb] += re[k] * re[k] + im[k] * im[k];
@@ -480,9 +480,9 @@ static int load_img(const char *path, uint8_t **blob, img_hdr_t *h)
     if (!*blob || n < 0x1000)
         return 0;
     memcpy(h, *blob, sizeof *h);
-    smg_set_sample(&eng, *blob + 0x1000, h->len, h->rate, h->fmt);
+    aet_set_sample(&eng, *blob + 0x1000, h->len, h->rate, h->fmt);
     if (h->env_frames)
-        smg_set_env(&eng, *blob + 0x1000 + (h->fmt == SMG_FMT_ADPCM ? SMG_ADPCM_SIZE(h->len) : 2u * h->len),
+        aet_set_env(&eng, *blob + 0x1000 + (h->fmt == AET_FMT_ADPCM ? AET_ADPCM_SIZE(h->len) : 2u * h->len),
                     h->env_frames, h->env_hop);
     return 1;
 }
@@ -493,14 +493,14 @@ static double sbr_render(const char *path, double *db, const char *wav)
     uint8_t *blob;
     img_hdr_t h;
     double all;
-    smg_init(&eng, ram);
+    aet_init(&eng, ram);
     if (!load_img(path, &blob, &h)) {
         CHECK(0, "sbr: no image %s (tests/run.sh makes it)", path);
         return 0.0;
     }
     eng.p.stretch = 6.0f;
     eng.p.attack = 0.05f;
-    smg_note_on(&eng, 60, 0.8f);
+    aet_note_on(&eng, 60, 0.8f);
     rec_run(&rc, 5.0f);
     sixth_octaves(&rc, 0.5, 5.0, db);
     all = rms_db(&rc, 0.5, 5.0);
@@ -539,10 +539,10 @@ static void t_sbr(const char *ref, const char *sbr, const char *nosbr)
 /* HARM: what each control promises, measured at the harmonics' own frequencies */
 static double goertzel_db(const rec_t *rc, double t0, double t1, double f)
 {
-    uint32_t a = (uint32_t)(t0 * SMG_FS), b = (uint32_t)(t1 * SMG_FS), i;
-    double w = 2.0 * M_PI * f / SMG_FS, c = 2.0 * cos(w), s1 = 0.0, s2 = 0.0, best = 0.0, df;
+    uint32_t a = (uint32_t)(t0 * AET_FS), b = (uint32_t)(t1 * AET_FS), i;
+    double w = 2.0 * M_PI * f / AET_FS, c = 2.0 * cos(w), s1 = 0.0, s2 = 0.0, best = 0.0, df;
     for (df = -24.0; df <= 24.0; df += 2.0) {    /* the band's energy, +-24 Hz (random phases make one point waver) */
-        w = 2.0 * M_PI * (f + df) / SMG_FS;
+        w = 2.0 * M_PI * (f + df) / AET_FS;
         c = 2.0 * cos(w);
         s1 = s2 = 0.0;
         for (i = a; i < b; i++) {
@@ -557,8 +557,8 @@ static double goertzel_db(const rec_t *rc, double t0, double t1, double f)
 
 static void harm_reset(void)
 {
-    smg_init(&eng, ram);
-    eng.p.source = SMG_SRC_HARM;
+    aet_init(&eng, ram);
+    eng.p.source = AET_SRC_HARM;
     eng.p.attack = 0.02f;
     eng.p.release = 0.2f;
     eng.p.width = 0.0f;
@@ -575,7 +575,7 @@ static void t_harm(void)
     printf("harm: ODD takes the even harmonics out; BOOST lifts the focus; an envelope on H3 moves H3 only\n");
     harm_reset();
     eng.p.h_odd = 1.0f;
-    smg_note_on(&eng, 48, 1.0f);
+    aet_note_on(&eng, 48, 1.0f);
     rec_run(&rc, 1.5f);
     h2 = goertzel_db(&rc, 0.5, 1.5, 2 * f0);
     h3 = goertzel_db(&rc, 0.5, 1.5, 3 * f0);
@@ -589,7 +589,7 @@ static void t_harm(void)
     eng.p.h_focus = 5.0f;
     eng.p.h_boost = 18.0f;
     eng.p.h_width = 0.6f;
-    smg_note_on(&eng, 48, 1.0f);
+    aet_note_on(&eng, 48, 1.0f);
     rec_run(&rc, 1.5f);
     h4 = goertzel_db(&rc, 0.5, 1.5, 4 * f0);
     h5 = goertzel_db(&rc, 0.5, 1.5, 5 * f0);
@@ -600,12 +600,12 @@ static void t_harm(void)
 
     memset(&rc, 0, sizeof rc);
     harm_reset();
-    eng.p.size = SMG_SIZE_2K;            /* (shorter frames: the envelope's time is clearer) */
+    eng.p.size = AET_SIZE_2K;            /* (shorter frames: the envelope's time is clearer) */
     eng.p.h_target[0] = 3;               /* envelope A on the third harmonic: up fast, gone in a second */
     eng.p.h_att[0] = 0.05f;
     eng.p.h_dec[0] = 0.8f;
     eng.p.h_sus[0] = 0.0f;
-    smg_note_on(&eng, 48, 1.0f);
+    aet_note_on(&eng, 48, 1.0f);
     rec_run(&rc, 3.0f);
     early3 = goertzel_db(&rc, 0.1, 0.4, 3 * f0);
     late3 = goertzel_db(&rc, 2.0, 3.0, 3 * f0);
@@ -625,9 +625,9 @@ static void t_harm(void)
     eng.p.h_band = 80.0f;
     eng.p.sub = eng.p.shimmer = 0.5f;
     for (int k = 0; k < 4; k++)
-        eng.p.h_target[k] = (uint8_t)(SMG_HT_ODD + k);
+        eng.p.h_target[k] = (uint8_t)(AET_HT_ODD + k);
     for (int i = 0; i < 8; i++)
-        smg_note_on(&eng, 36 + i * 5, 0.3f + 0.1f * i);
+        aet_note_on(&eng, 36 + i * 5, 0.3f + 0.1f * i);
     rec_run(&rc, 3.0f);
     check_sane(&rc, "harm all");
     CHECK(eng.late == 0, "harm all: %u frames late", eng.late);
@@ -655,23 +655,23 @@ static int par_wait(void)
 
 static void dual_case(rec_t *rc, int dual, int src)
 {
-    smg_init(&eng, ram);
-    smg_set_sample(&eng, smg_builtin[2].data, smg_builtin[2].len, smg_builtin[2].rate, SMG_FMT_ADPCM);
-    smg_set_env(&eng, smg_builtin[2].env, smg_builtin[2].env_frames, smg_builtin[2].env_hop);
+    aet_init(&eng, ram);
+    aet_set_sample(&eng, aet_builtin[2].data, aet_builtin[2].len, aet_builtin[2].rate, AET_FMT_ADPCM);
+    aet_set_env(&eng, aet_builtin[2].env, aet_builtin[2].env_frames, aet_builtin[2].env_hop);
     if (dual)
-        smg_set_par(&eng, par_run, par_wait);
+        aet_set_par(&eng, par_run, par_wait);
     eng.p.source = (uint8_t)src;
     eng.p.h_count = 48;
     eng.p.h_band = 40.0f;
     eng.p.sub = eng.p.shimmer = 0.5f;
     for (int i = 0; i < 8; i++)
-        smg_note_on(&eng, 40 + i * 4, 0.5f + 0.06f * i);
+        aet_note_on(&eng, 40 + i * 4, 0.5f + 0.06f * i);
     rec_run(rc, 3.0f);
 }
 
 static void t_dual(void)
 {
-    static const int SRC[3] = {SMG_SRC_HARM, SMG_SRC_PAD, SMG_SRC_SAMPLE};
+    static const int SRC[3] = {AET_SRC_HARM, AET_SRC_PAD, AET_SRC_SAMPLE};
     static const char *const NAME[3] = {"HARM", "PAD", "SAMPLE"};
     printf("dual: half the voices painted on a second core (a thread here): the same sound as one core\n");
     for (int k = 0; k < 3; k++) {
@@ -694,7 +694,7 @@ static void t_dual(void)
         rec_t c = {0};
         par_fail_after = 5;
         par_count = 0;
-        dual_case(&c, 1, SMG_SRC_HARM);
+        dual_case(&c, 1, AET_SRC_HARM);
         par_fail_after = -1;
         check_sane(&c, "dual fail");
         CHECK(eng.par_failed == 1 && !eng.dual, "dual: a failing core not given up");

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-smuga contributors */
-/* SMUGA's VA source: see va.h. */
+ * Copyright (C) 2026 fm1-aether contributors */
+/* AETHER's VA source: see va.h. */
 #include "va.h"
 #include "fastmath.h"
 

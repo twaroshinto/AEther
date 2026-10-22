@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MPL-2.0
-# Copyright (C) 2026 fm1-smuga contributors
-"""SMUGA's built-in samples: sixteen short sounds synthesized here, at build time, so the firmware has material to
+# Copyright (C) 2026 fm1-aether contributors
+"""AETHER's built-in samples: sixteen short sounds synthesized here, at build time, so the firmware has material to
 stretch before any sample is loaded, and no recording's licence to carry. Each is made at 44.1 kHz, then kept at
-11025 Hz as IMA ADPCM (app/tools/smg_adpcm.py) with an SBR envelope of its band above 4.9 kHz (app/tools/smg_sbr.py):
+11025 Hz as IMA ADPCM (app/tools/aet_adpcm.py) with an SBR envelope of its band above 4.9 kHz (app/tools/aet_sbr.py):
 the engine rebuilds that band at play time. About 16 KB for three seconds.
 
-  gen_source.py --out GEN/smuga_source.h [--wav-dir DIR]     (needs numpy)
+  gen_source.py --out GEN/aether_source.h [--wav-dir DIR]     (needs numpy)
 
-The header holds smg_builtin[SMG_NBUILTIN]: {name, data, len, rate, env, env_frames, env_hop}. --wav-dir also
+The header holds aet_builtin[AET_NBUILTIN]: {name, data, len, rate, env, env_frames, env_hop}. --wav-dir also
 writes each at 44.1 kHz as a WAV, to listen to or to load and edit."""
 import argparse
 import struct
@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import smg_adpcm  # noqa: E402
-import smg_sbr  # noqa: E402
+import aet_adpcm  # noqa: E402
+import aet_sbr  # noqa: E402
 
 FS = 44100
 KEEP = 11025
@@ -320,26 +320,26 @@ def main():
     stamp = f"/* gen_source.py {VERSION} {KEEP} {' '.join(s[0] for s in SOURCES)} */"
     if out.exists() and out.read_text().startswith(stamp) and not a.wav_dir:
         return                             # made already, with these settings
-    lines = [stamp, "/* SMUGA's built-in samples (app/tools/gen_source.py): generated, do not edit */",
-             "#pragma once", "#include <stdint.h>", '#include "smuga.h"', ""]
+    lines = [stamp, "/* AETHER's built-in samples (app/tools/gen_source.py): generated, do not edit */",
+             "#pragma once", "#include <stdint.h>", '#include "aether.h"', ""]
     table, total = [], 0
-    hop = smg_sbr.env_hop(KEEP)
+    hop = aet_sbr.env_hop(KEEP)
     for i, (name, fn) in enumerate(SOURCES):
         x = fn(np.random.default_rng(1000 + i))
         x = x / (np.max(np.abs(x)) or 1.0) * 0.89
-        kept = smg_sbr.resample(x, FS, KEEP)
+        kept = aet_sbr.resample(x, FS, KEEP)
         kept = kept / (np.max(np.abs(kept)) or 1.0) * 0.89
         pcm = [int(v) for v in np.round(kept * 32767)]
-        data = smg_adpcm.encode(pcm)
-        env = smg_sbr.envelope(x * (0.89 / (np.max(np.abs(smg_sbr.resample(x, FS, KEEP))) or 1.0)), FS, KEEP, hop)
+        data = aet_adpcm.encode(pcm)
+        env = aet_sbr.envelope(x * (0.89 / (np.max(np.abs(aet_sbr.resample(x, FS, KEEP))) or 1.0)), FS, KEEP, hop)
         total += len(data) + len(env)
-        ident = f"smg_src_{name.lower()}"
+        ident = f"aet_src_{name.lower()}"
         for nm, blob in ((ident, data), (ident + "_env", env)):
             lines.append(f"static const uint8_t {nm}[{len(blob)}] = {{")
             for k in range(0, len(blob), 24):
                 lines.append("    " + ", ".join(str(v) for v in blob[k:k + 24]) + ",")
             lines.append("};")
-        table.append(f'    {{"{name}", {ident}, {len(pcm)}u, {KEEP}u, {ident}_env, {len(env) // smg_sbr.BANDS}u, '
+        table.append(f'    {{"{name}", {ident}, {len(pcm)}u, {KEEP}u, {ident}_env, {len(env) // aet_sbr.BANDS}u, '
                      f'{hop}u}},')
         if a.wav_dir:
             Path(a.wav_dir).mkdir(parents=True, exist_ok=True)
@@ -348,10 +348,10 @@ def main():
                 w.setsampwidth(2)
                 w.setframerate(FS)
                 w.writeframes(struct.pack(f"<{len(x)}h", *(int(v) for v in np.round(x * 32767))))
-    lines += ["typedef struct {", "    const char *name;", "    const uint8_t *data;   /* SMG_FMT_ADPCM */",
-              "    uint32_t len, rate;", "    const uint8_t *env;    /* SBR (smg_set_env) */",
-              "    uint32_t env_frames, env_hop;", "} smg_builtin_t;", f"#define SMG_NBUILTIN {len(SOURCES)}u",
-              "static const smg_builtin_t smg_builtin[SMG_NBUILTIN] = {", *table, "};"]
+    lines += ["typedef struct {", "    const char *name;", "    const uint8_t *data;   /* AET_FMT_ADPCM */",
+              "    uint32_t len, rate;", "    const uint8_t *env;    /* SBR (aet_set_env) */",
+              "    uint32_t env_frames, env_hop;", "} aet_builtin_t;", f"#define AET_NBUILTIN {len(SOURCES)}u",
+              "static const aet_builtin_t aet_builtin[AET_NBUILTIN] = {", *table, "};"]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
     print(f"sources: {len(SOURCES)}, {total} B (ADPCM at {KEEP} Hz + SBR envelopes) -> {out}")

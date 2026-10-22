@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-smuga contributors */
-/* SMUGA: a spectral "smear" synthesizer in the spirit of PaulStretch (Nasca Octavian Paul's extreme time stretch).
+ * Copyright (C) 2026 fm1-aether contributors */
+/* AETHER: a spectral "smear" synthesizer in the spirit of PaulStretch (Nasca Octavian Paul's extreme time stretch).
  *
  * Every frame is built in the frequency domain: a magnitude spectrum (from a sample scanned very slowly, or from a
  * PADsynth-like harmonic profile of each held note), then random phases for every bin, an inverse FFT and a sine
@@ -10,73 +10,73 @@
  * whatever the number of notes. Stereo is free too: the left and right channels are two independent random-phase
  * frames packed into one complex FFT (the real part is the left, the imaginary part the right).
  *
- * The engine never allocates: the caller gives it SMG_RAM_FLOATS floats (on the FM-1, the .pool RAM). Its work is
- * split into small steps spread over the audio blocks of one hop (smg_render does it), so no block carries a whole
+ * The engine never allocates: the caller gives it AET_RAM_FLOATS floats (on the FM-1, the .pool RAM). Its work is
+ * split into small steps spread over the audio blocks of one hop (aet_render does it), so no block carries a whole
  * FFT. Plain C99 and float only: no double, no libc (fastmath.h), so the same file runs on the FM-1 (pi32v2 FPU),
  * in fm1-base's host simulator and in the tests. */
 #pragma once
 #include <stdint.h>
 
-#define SMG_FS 44100u
-#define SMG_NMAX 8192u                   /* the longest frame: 186 ms at 44.1 kHz */
-#define SMG_NMIN 1024u
-#define SMG_VOICES 8u
-#define SMG_DISP 60u                     /* bands of the display spectrum (log-spaced, 40 Hz .. 16 kHz) */
+#define AET_FS 44100u
+#define AET_NMAX 8192u                   /* the longest frame: 186 ms at 44.1 kHz */
+#define AET_NMIN 1024u
+#define AET_VOICES 8u
+#define AET_DISP 60u                     /* bands of the display spectrum (log-spaced, 40 Hz .. 16 kHz) */
 
 /* the RAM the engine needs, in floats: the complex FFT buffer (2N), the source and output magnitudes (N/2 + 1 each),
  * the play and tail buffers of both channels (N/2 each), the synthesis window (N/2), a quarter sine (N/4 + 1), the
  * LIVE source's ring (N), the second core's spectrum (N/2 + 1) */
-#define SMG_RAM_FLOATS (2u * SMG_NMAX + 2u * (SMG_NMAX / 2u + 1u) + 4u * (SMG_NMAX / 2u) + SMG_NMAX / 2u + \
-                        SMG_NMAX / 4u + 1u + SMG_NMAX + SMG_NMAX / 2u + 1u)
+#define AET_RAM_FLOATS (2u * AET_NMAX + 2u * (AET_NMAX / 2u + 1u) + 4u * (AET_NMAX / 2u) + AET_NMAX / 2u + \
+                        AET_NMAX / 4u + 1u + AET_NMAX + AET_NMAX / 2u + 1u)
 
 /* PAD: harmonic bands built in the spectrum; SAMPLE: a sample scanned slowly; LIVE: whatever the caller pushes
- * (smg_live_push: a synthesizer running beside the engine), its newest window analysed every frame */
+ * (aet_live_push: a synthesizer running beside the engine), its newest window analysed every frame */
 /* HARM: an additive generator drawn straight into the spectrum: each note's harmonics (how many, their slope,
  * odd against even, a boost or cut around one of them, brightness by velocity), each a narrow band as PAD's, and
  * four envelopes that each move the harmonics they are given (one, a group, all), from the note's start */
-enum { SMG_SRC_PAD, SMG_SRC_SAMPLE, SMG_SRC_LIVE, SMG_SRC_HARM, SMG_NSRC };
-#define SMG_HARM_MAX 64u
-#define SMG_HENV 4u
+enum { AET_SRC_PAD, AET_SRC_SAMPLE, AET_SRC_LIVE, AET_SRC_HARM, AET_NSRC };
+#define AET_HARM_MAX 64u
+#define AET_HENV 4u
 /* an envelope's target: 0 none, 1 .. 32 that harmonic, then the groups */
-enum { SMG_HT_OFF = 0, SMG_HT_H32 = 32, SMG_HT_ODD, SMG_HT_EVEN, SMG_HT_LOW, SMG_HT_MID, SMG_HT_HIGH, SMG_HT_ALL,
-       SMG_NHT };                        /* LOW 1-4, MID 5-12, HIGH 13 and up */
-/* sample formats: 16-bit PCM, or IMA ADPCM (4 bits a sample) in blocks of SMG_ADPCM_BLOCK samples, each block
- * SMG_ADPCM_BYTES bytes: the first sample (int16, little-endian), the step index, a zero, then the other 255
+enum { AET_HT_OFF = 0, AET_HT_H32 = 32, AET_HT_ODD, AET_HT_EVEN, AET_HT_LOW, AET_HT_MID, AET_HT_HIGH, AET_HT_ALL,
+       AET_NHT };                        /* LOW 1-4, MID 5-12, HIGH 13 and up */
+/* sample formats: 16-bit PCM, or IMA ADPCM (4 bits a sample) in blocks of AET_ADPCM_BLOCK samples, each block
+ * AET_ADPCM_BYTES bytes: the first sample (int16, little-endian), the step index, a zero, then the other 255
  * samples' codes, two a byte, the low nibble first. Blocks start afresh, so any point is at most 255 codes away. */
-enum { SMG_FMT_PCM16, SMG_FMT_ADPCM, SMG_NFMT };
-#define SMG_ADPCM_BLOCK 256u
-#define SMG_ADPCM_BYTES 132u
+enum { AET_FMT_PCM16, AET_FMT_ADPCM, AET_NFMT };
+#define AET_ADPCM_BLOCK 256u
+#define AET_ADPCM_BYTES 132u
 /* SBR (spectral band replication, after HE-AAC): a sample kept at a low rate has the band above its Nyquist rebuilt
  * from its own top octave, transposed up by octaves (so harmonics stay harmonics) and shaped to a stored envelope:
- * SMG_SBR_BANDS energies a frame, log-spaced from SMG_SBR_LO(rate) to SMG_SBR_HI, one frame every env_hop source
+ * AET_SBR_BANDS energies a frame, log-spaced from AET_SBR_LO(rate) to AET_SBR_HI, one frame every env_hop source
  * samples, each a byte: 2 (10 log10 E + 120), 0 = silence. E is the band's sum of squared magnitudes in the engine's
  * own scale (Hann window, |X| 4 / N), which does not depend on N. Random phases make SBR's usual flaws (phase,
  * transients) moot. */
-#define SMG_SBR_BANDS 8u
-#define SMG_SBR_HI 16000.0f
-#define SMG_SBR_LO(rate) (0.44f * (float)(rate))   /* 88 % of the sample's Nyquist: above its anti-alias filter */
-#define SMG_ADPCM_SIZE(len) (((len) + SMG_ADPCM_BLOCK - 1u) / SMG_ADPCM_BLOCK * SMG_ADPCM_BYTES)
-enum { SMG_SIZE_1K, SMG_SIZE_2K, SMG_SIZE_4K, SMG_SIZE_8K, SMG_NSIZE };
+#define AET_SBR_BANDS 8u
+#define AET_SBR_HI 16000.0f
+#define AET_SBR_LO(rate) (0.44f * (float)(rate))   /* 88 % of the sample's Nyquist: above its anti-alias filter */
+#define AET_ADPCM_SIZE(len) (((len) + AET_ADPCM_BLOCK - 1u) / AET_ADPCM_BLOCK * AET_ADPCM_BYTES)
+enum { AET_SIZE_1K, AET_SIZE_2K, AET_SIZE_4K, AET_SIZE_8K, AET_NSIZE };
 
 typedef struct {
-    const uint8_t *data;                 /* mono, SMG_FMT_*; 0 = none */
+    const uint8_t *data;                 /* mono, AET_FMT_*; 0 = none */
     uint32_t len;                        /* samples */
     uint32_t rate;                       /* Hz (any: read with interpolation) */
     uint32_t fmt;
-    const uint8_t *env;                  /* SBR envelope (smg_set_env): env_frames x SMG_SBR_BANDS bytes; 0 = none */
+    const uint8_t *env;                  /* SBR envelope (aet_set_env): env_frames x AET_SBR_BANDS bytes; 0 = none */
     uint32_t env_frames, env_hop;
-} smg_sample_t;
+} aet_sample_t;
 
 typedef struct {                         /* the ADPCM reader: the block decoded so far */
     uint32_t blk;                        /* 0xFFFFFFFF: none */
     uint32_t pos;                        /* the last code decoded, in the block */
     int32_t pred, prev, idx;             /* the sample at pos, the one before it, the step index */
-} smg_adpcm_t;
+} aet_adpcm_t;
 
 /* the sound's parameters: the main loop writes them, the engine takes a copy at the start of each frame */
 typedef struct {
-    uint8_t source;                      /* SMG_SRC_* */
-    uint8_t size;                        /* SMG_SIZE_*: the frame, the smear's length */
+    uint8_t source;                      /* AET_SRC_* */
+    uint8_t size;                        /* AET_SIZE_*: the frame, the smear's length */
     uint8_t freeze;                      /* sample: the scan stops, the spectrum held */
     uint8_t rsv;
     /* SAMPLE */
@@ -98,11 +98,11 @@ typedef struct {
     float lp_hz;                         /* a resonant 24 dB/octave low-pass on the spectrum, the same for every
                                           * key (the VA's filter); 0 = off */
     float lp_reso;                       /* 0 .. 1 */
-    uint8_t voice_cap;                   /* the overload guard: voices at most (0: all SMG_VOICES) */
+    uint8_t voice_cap;                   /* the overload guard: voices at most (0: all AET_VOICES) */
     uint8_t no_layers;                   /* the overload guard: SUB and SHIMMER left out */
     /* HARM */
-    uint8_t h_count;                     /* harmonics, 1 .. SMG_HARM_MAX */
-    uint8_t h_target[SMG_HENV];          /* each envelope's harmonics: SMG_HT_* */
+    uint8_t h_count;                     /* harmonics, 1 .. AET_HARM_MAX */
+    uint8_t h_target[AET_HENV];          /* each envelope's harmonics: AET_HT_* */
     uint8_t rsv2[3];
     float h_slope;                       /* 0 .. 3: the harmonics fall as 1 / h^slope */
     float h_odd;                         /* -1 .. 1: even only .. both .. odd only */
@@ -111,8 +111,8 @@ typedef struct {
     float h_boost;                       /* dB, -24 .. +24, at the focus */
     float h_width;                       /* the boost's width, in harmonics */
     float h_vel;                         /* 0 .. 1: softer notes darker */
-    float h_att[SMG_HENV], h_dec[SMG_HENV], h_sus[SMG_HENV];   /* seconds, seconds, 0 .. 1 */
-} smg_params_t;
+    float h_att[AET_HENV], h_dec[AET_HENV], h_sus[AET_HENV];   /* seconds, seconds, 0 .. 1 */
+} aet_params_t;
 
 typedef struct {
     int8_t note;                         /* MIDI note, -1 = free */
@@ -121,33 +121,33 @@ typedef struct {
     float vel;                           /* 0 .. 1 */
     float level;                         /* the envelope, per frame */
     uint32_t age;                        /* frames since its note-on (stealing) */
-} smg_voice_t;
+} aet_voice_t;
 
-/* a cursor painting voices into a spectrum (smuga.c, "Painting the voices") */
+/* a cursor painting voices into a spectrum (aether.c, "Painting the voices") */
 typedef struct {
     uint32_t v, vstep, layer, i, units;
     float ratio, gain, norm;
     float *acc;
     uint8_t done, rsv[3];
-} smg_cur_t;
+} aet_cur_t;
 
-#define SMG_GT 130u                      /* the Gaussian band's table: exp(-x^2 / 2), x = 0 .. 3.225 */
+#define AET_GT 130u                      /* the Gaussian band's table: exp(-x^2 / 2), x = 0 .. 3.225 */
 
 typedef struct {
-    smg_params_t p;                      /* written by the caller */
-    smg_params_t fp;                     /* this frame's copy */
-    smg_sample_t smp;                    /* the source sample (smg_set_sample) */
-    smg_adpcm_t ad;
-    float *ring;                         /* LIVE: the newest SMG_NMAX samples pushed */
+    aet_params_t p;                      /* written by the caller */
+    aet_params_t fp;                     /* this frame's copy */
+    aet_sample_t smp;                    /* the source sample (aet_set_sample) */
+    aet_adpcm_t ad;
+    float *ring;                         /* LIVE: the newest AET_NMAX samples pushed */
     uint32_t ring_w, live_at;            /* the next write; where this frame's window starts */
     float load_scan;                     /* the scan where this frame's window was read (the SBR envelope's time) */
-    uint32_t sbr_edge[SMG_SBR_BANDS + 1u];   /* SBR: the bands' first bins (the last: the end) */
-    float sbr_p[SMG_SBR_BANDS];          /* the rebuilt bands' energies, then their gains */
-    smg_voice_t voice[SMG_VOICES];
+    uint32_t sbr_edge[AET_SBR_BANDS + 1u];   /* SBR: the bands' first bins (the last: the end) */
+    float sbr_p[AET_SBR_BANDS];          /* the rebuilt bands' energies, then their gains */
+    aet_voice_t voice[AET_VOICES];
     float *work, *src, *acc, *acc2, *play[2], *tail[2], *win, *qs;
-    smg_cur_t c0, c1;                    /* the voices' painters: this core's, the second core's (or this one's) */
-    float gt[SMG_GT];
-    /* a second core (smg_set_par): run(fn, arg) starts fn(arg) there, 1 = taken; wait() 0 = done, else it failed
+    aet_cur_t c0, c1;                    /* the voices' painters: this core's, the second core's (or this one's) */
+    float gt[AET_GT];
+    /* a second core (aet_set_par): run(fn, arg) starts fn(arg) there, 1 = taken; wait() 0 = done, else it failed
      * (one core from then on). The engine gives it half the voices of each frame. */
     int (*par_run)(void (*fn)(void *), void *arg);
     int (*par_wait)(void);
@@ -165,28 +165,28 @@ typedef struct {
     uint32_t units, units_frame, units_est;   /* work done: this step, this frame, the estimate per frame */
     uint32_t units_bound, units_peak;    /* the most this frame can take (from its parameters); the most any took */
     uint32_t frames, late;               /* frames made; frames that were not ready in time (finished at once) */
-    float disp_acc[SMG_DISP];
-    float disp[SMG_DISP];                /* the last frame's spectrum by band, linear (for a screen) */
-} smg_t;
+    float disp_acc[AET_DISP];
+    float disp[AET_DISP];                /* the last frame's spectrum by band, linear (for a screen) */
+} aet_t;
 
-void smg_init(smg_t *e, float *ram);    /* ram: SMG_RAM_FLOATS floats; e->p gets defaults */
-void smg_defaults(smg_params_t *p);
-void smg_set_sample(smg_t *e, const void *data, uint32_t len, uint32_t rate, uint32_t fmt);   /* audio context */
-void smg_set_env(smg_t *e, const uint8_t *env, uint32_t frames, uint32_t hop);   /* after smg_set_sample */
+void aet_init(aet_t *e, float *ram);    /* ram: AET_RAM_FLOATS floats; e->p gets defaults */
+void aet_defaults(aet_params_t *p);
+void aet_set_sample(aet_t *e, const void *data, uint32_t len, uint32_t rate, uint32_t fmt);   /* audio context */
+void aet_set_env(aet_t *e, const uint8_t *env, uint32_t frames, uint32_t hop);   /* after aet_set_sample */
 /* a second core: from the next frame half of the voices are painted there (0, 0: one core again) */
-void smg_set_par(smg_t *e, int (*run)(void (*fn)(void *), void *arg), int (*wait)(void));
-int32_t smg_sample_read(smg_t *e, uint32_t i);   /* the sample's value at i (decoded), for tests and screens */
-void smg_live_push(smg_t *e, const float *x, uint32_t n);   /* audio context: LIVE's newest samples, before render */
-void smg_note_on(smg_t *e, int32_t note, float vel);    /* audio context */
-void smg_note_off(smg_t *e, int32_t note);
-void smg_all_off(smg_t *e);              /* release every voice */
-void smg_panic(smg_t *e);                /* silence now */
+void aet_set_par(aet_t *e, int (*run)(void (*fn)(void *), void *arg), int (*wait)(void));
+int32_t aet_sample_read(aet_t *e, uint32_t i);   /* the sample's value at i (decoded), for tests and screens */
+void aet_live_push(aet_t *e, const float *x, uint32_t n);   /* audio context: LIVE's newest samples, before render */
+void aet_note_on(aet_t *e, int32_t note, float vel);    /* audio context */
+void aet_note_off(aet_t *e, int32_t note);
+void aet_all_off(aet_t *e);              /* release every voice */
+void aet_panic(aet_t *e);                /* silence now */
 /* n frames of output (any n); the frame work is done here too, a share of it each call */
-void smg_render(smg_t *e, float *l, float *r, uint32_t n);
-uint32_t smg_size_n(uint32_t size);      /* SMG_SIZE_* -> frame length */
-int smg_active(const smg_t *e);          /* voices sounding */
+void aet_render(aet_t *e, float *l, float *r, uint32_t n);
+uint32_t aet_size_n(uint32_t size);      /* AET_SIZE_* -> frame length */
+int aet_active(const aet_t *e);          /* voices sounding */
 /* HARM's pieces, for a screen as well: harmonic h's level before the envelopes (velocity vel 0 .. 1), whether a
  * target takes harmonic h, an envelope's value t seconds into a note */
-float smg_harm_level(const smg_params_t *p, uint32_t h, float vel);
-int smg_harm_takes(uint32_t target, uint32_t h);
-float smg_harm_env(const smg_params_t *p, uint32_t k, float t);
+float aet_harm_level(const aet_params_t *p, uint32_t h, float vel);
+int aet_harm_takes(uint32_t target, uint32_t h);
+float aet_harm_env(const aet_params_t *p, uint32_t k, float t);

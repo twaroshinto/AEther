@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MPL-2.0
-# Copyright (C) 2026 fm1-smuga contributors
-"""SMUGA's sample preparation, shared by gen_source.py and tools/smuga_load.py (needs numpy):
+# Copyright (C) 2026 fm1-aether contributors
+"""AETHER's sample preparation, shared by gen_source.py and tools/aether_load.py (needs numpy):
 
   resample(x, rate, to)          band-limited (windowed-sinc low-pass, then interpolation)
-  envelope(x, rate, keep, hop)   the SBR envelope (app/dsp/smuga.h): for a sample kept at `keep` Hz, one frame every
-                                 `hop` kept samples, SMG_SBR_BANDS bytes of band energy from SMG_SBR_LO(keep) to
-                                 SMG_SBR_HI, measured on the full-band original x (at `rate`) in the engine's own scale
+  envelope(x, rate, keep, hop)   the SBR envelope (app/dsp/aether.h): for a sample kept at `keep` Hz, one frame every
+                                 `hop` kept samples, AET_SBR_BANDS bytes of band energy from AET_SBR_LO(keep) to
+                                 AET_SBR_HI, measured on the full-band original x (at `rate`) in the engine's own scale
   env_hop(keep)                  the hop used: about 50 ms
 """
 import numpy as np
@@ -14,7 +14,7 @@ BANDS, HI, FS = 8, 16000.0, 44100
 
 
 def lo_of(rate):
-    return 0.44 * rate                    # SMG_SBR_LO
+    return 0.44 * rate                    # AET_SBR_LO
 
 
 def env_hop(keep):

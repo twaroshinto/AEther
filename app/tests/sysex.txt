@@ -1,4 +1,4 @@
-# a sample loaded over USB-MIDI, the very messages tools/smuga_load.py sends (its --syx file, made by tests/run.sh)
+# a sample loaded over USB-MIDI, the very messages tools/aether_load.py sends (its --syx file, made by tests/run.sh)
 wait 600
 expect user_len 0
 sysex app/build/host/user.syx

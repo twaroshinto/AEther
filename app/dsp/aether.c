@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-smuga contributors */
-/* SMUGA's engine: see smuga.h. One frame, as a job of small steps:
+ * Copyright (C) 2026 fm1-aether contributors */
+/* AETHER's engine: see aether.h. One frame, as a job of small steps:
  *
  *   WIN    the synthesis window for a new frame length
  *   LOAD   SAMPLE: N source samples around the scan position, Hann-windowed, into the FFT buffer
@@ -19,29 +19,29 @@
  *   SFFT   radix-2 stages                       }
  *   DONE   waits for the play buffer to run out: then swap() overlaps it with the last tail
  *
- * Units: one unit is about one bin, sample or butterfly. smg_render spends a share of a frame's units per block. */
-#include "smuga.h"
+ * Units: one unit is about one bin, sample or butterfly. aet_render spends a share of a frame's units per block. */
+#include "aether.h"
 #include "fastmath.h"
 
 enum { S_WIN, S_LOAD, S_AREV, S_AFFT, S_MAG, S_SBR1, S_SBR2, S_SPR1, S_SPR2, S_CLEAR, S_VOICE, S_PHASE, S_SREV, S_SFFT, S_DONE };
 #define CHUNK 256u                       /* items per step */
-#define QN (SMG_NMAX / 4u)               /* the quarter sine's last index */
+#define QN (AET_NMAX / 4u)               /* the quarter sine's last index */
 #define DISP_LO_LOG2 5.321928f           /* log2(40 Hz) */
 #define DISP_SPAN_LOG2 8.643856f         /* log2(16000 / 40) */
 
-uint32_t smg_size_n(uint32_t size) { return SMG_NMIN << (size < SMG_NSIZE ? size : SMG_NSIZE - 1u); }
+uint32_t aet_size_n(uint32_t size) { return AET_NMIN << (size < AET_NSIZE ? size : AET_NSIZE - 1u); }
 
 /* ------------------------------------------------------------------ tables --- */
 /* sin and cos of 2 pi t / NMAX, t in [0, NMAX), from the quarter wave qs[0 .. NMAX/4] */
 static inline float q_sin(const float *qs, uint32_t t)
 {
-    uint32_t h = t & (SMG_NMAX / 2u - 1u);
-    float s = h <= QN ? qs[h] : qs[SMG_NMAX / 2u - h];
-    return t & (SMG_NMAX / 2u) ? -s : s;
+    uint32_t h = t & (AET_NMAX / 2u - 1u);
+    float s = h <= QN ? qs[h] : qs[AET_NMAX / 2u - h];
+    return t & (AET_NMAX / 2u) ? -s : s;
 }
-static inline float q_cos(const float *qs, uint32_t t) { return q_sin(qs, (t + QN) & (SMG_NMAX - 1u)); }
+static inline float q_cos(const float *qs, uint32_t t) { return q_sin(qs, (t + QN) & (AET_NMAX - 1u)); }
 
-static inline uint32_t rnd(smg_t *e)    /* xorshift32 */
+static inline uint32_t rnd(aet_t *e)    /* xorshift32 */
 {
     uint32_t x = e->rng;
     x ^= x << 13;
@@ -50,7 +50,7 @@ static inline uint32_t rnd(smg_t *e)    /* xorshift32 */
     return e->rng = x;
 }
 
-static inline float win_at(const smg_t *e, uint32_t k)   /* the sine window of the current frame, k in [0, n) */
+static inline float win_at(const aet_t *e, uint32_t k)   /* the sine window of the current frame, k in [0, n) */
 {
     return e->win[k < e->hop ? k : e->n - 1u - k];
 }
@@ -58,7 +58,7 @@ static inline float win_at(const smg_t *e, uint32_t k)   /* the sine window of t
 /* -------------------------------------------------------------------- FFT --- */
 /* in-place complex FFT on e->work (re, im interleaved), size e->n, in steps: the permutation (Gold-Rader's running
  * reversed counter in e->j), then the stages (e->h = half the butterfly span, e->i = butterfly) */
-static int fft_rev_step(smg_t *e)       /* 1 = done */
+static int fft_rev_step(aet_t *e)       /* 1 = done */
 {
     float *x = e->work;
     uint32_t n = e->n, i = e->i, end = i + CHUNK < n ? i + CHUNK : n, j = e->j;
@@ -84,12 +84,12 @@ static int fft_rev_step(smg_t *e)       /* 1 = done */
     return end >= n;
 }
 
-static int fft_stage_step(smg_t *e, int inverse)   /* 1 = all stages done */
+static int fft_stage_step(aet_t *e, int inverse)   /* 1 = all stages done */
 {
     float *x = e->work;
     const float *qs = e->qs;
     uint32_t half = e->n >> 1, h = e->h, b = e->i, end = b + CHUNK < half ? b + CHUNK : half;
-    uint32_t tstep = SMG_NMAX / (2u * h);
+    uint32_t tstep = AET_NMAX / (2u * h);
     for (; b < end; b++) {
         uint32_t jj = b & (h - 1u), i1 = ((b - jj) << 1) + jj, i2 = i1 + h, t = jj * tstep;
         float c = q_cos(qs, t), s = inverse ? q_sin(qs, t) : -q_sin(qs, t);
@@ -111,7 +111,7 @@ static int fft_stage_step(smg_t *e, int inverse)   /* 1 = all stages done */
 }
 
 /* ----------------------------------------------------------------- frames --- */
-static void enter(smg_t *e, uint32_t st)
+static void enter(aet_t *e, uint32_t st)
 {
     e->st = (uint8_t)st;
     e->i = 0;
@@ -121,20 +121,20 @@ static void enter(smg_t *e, uint32_t st)
     e->layer = 0;
 }
 
-static void voice_cap(smg_t *e)          /* over the cap (the overload guard): the quietest let go, fast */
+static void voice_cap(aet_t *e)          /* over the cap (the overload guard): the quietest let go, fast */
 {
-    uint32_t cap = e->fp.voice_cap ? e->fp.voice_cap : SMG_VOICES, n = 0, v;
-    for (v = 0; v < SMG_VOICES; v++)
+    uint32_t cap = e->fp.voice_cap ? e->fp.voice_cap : AET_VOICES, n = 0, v;
+    for (v = 0; v < AET_VOICES; v++)
         n += e->voice[v].note >= 0 && e->voice[v].level > 0.002f;
     while (n > cap) {
-        uint32_t q = SMG_VOICES;
+        uint32_t q = AET_VOICES;
         float lo = 9.0f;
-        for (v = 0; v < SMG_VOICES; v++)
+        for (v = 0; v < AET_VOICES; v++)
             if (e->voice[v].note >= 0 && e->voice[v].level > 0.002f && e->voice[v].level < lo) {
                 lo = e->voice[v].level;
                 q = v;
             }
-        if (q == SMG_VOICES)
+        if (q == AET_VOICES)
             break;
         e->voice[q].gate = 0;
         e->voice[q].level *= 0.25f;
@@ -144,14 +144,14 @@ static void voice_cap(smg_t *e)          /* over the cap (the overload guard): t
     }
 }
 
-static void envelopes(smg_t *e)          /* once a frame: attack linear, release exponential */
+static void envelopes(aet_t *e)          /* once a frame: attack linear, release exponential */
 {
-    float dt = (float)e->hop / (float)SMG_FS;
+    float dt = (float)e->hop / (float)AET_FS;
     float up = dt / fm_maxf(e->fp.attack, 0.005f);
     float down = fm_expf(-dt / fm_maxf(e->fp.release, 0.01f) * 4.6f);   /* -40 dB at the release time */
     uint32_t v;
-    for (v = 0; v < SMG_VOICES; v++) {
-        smg_voice_t *vc = &e->voice[v];
+    for (v = 0; v < AET_VOICES; v++) {
+        aet_voice_t *vc = &e->voice[v];
         if (vc->note < 0)
             continue;
         vc->age++;
@@ -171,7 +171,7 @@ static void envelopes(smg_t *e)          /* once a frame: attack linear, release
 
 /* PAD: harmonic h (e->i + 1) as a Gaussian band of power a_h^2 (PADsynth); one harmonic a step */
 #define PAD_HMAX 64u
-static float pad_amp(const smg_params_t *p, uint32_t h)
+static float pad_amp(const aet_params_t *p, uint32_t h)
 {
     float slope = 2.2f - 1.7f * p->bright; /* 1/h^slope: dull .. bright */
     float a = fm_exp2f(-slope * fm_log2f((float)h));
@@ -180,7 +180,7 @@ static float pad_amp(const smg_params_t *p, uint32_t h)
     return a;
 }
 /* HARM */
-float smg_harm_level(const smg_params_t *p, uint32_t h, float vel)
+float aet_harm_level(const aet_params_t *p, uint32_t h, float vel)
 {
     float lh = fm_log2f((float)h), slope = p->h_slope + p->h_vel * (1.0f - vel) * 1.5f, a, d, db;
     a = fm_exp2f(-slope * lh);
@@ -193,22 +193,22 @@ float smg_harm_level(const smg_params_t *p, uint32_t h, float vel)
     return a * fm_exp2f(db * 0.16609640f);       /* 10^(dB / 20) */
 }
 
-int smg_harm_takes(uint32_t target, uint32_t h)
+int aet_harm_takes(uint32_t target, uint32_t h)
 {
-    if (target >= 1u && target <= SMG_HT_H32)
+    if (target >= 1u && target <= AET_HT_H32)
         return h == target;
     switch (target) {
-    case SMG_HT_ODD: return (h & 1u) != 0;
-    case SMG_HT_EVEN: return !(h & 1u);
-    case SMG_HT_LOW: return h <= 4u;
-    case SMG_HT_MID: return h >= 5u && h <= 12u;
-    case SMG_HT_HIGH: return h >= 13u;
-    case SMG_HT_ALL: return 1;
+    case AET_HT_ODD: return (h & 1u) != 0;
+    case AET_HT_EVEN: return !(h & 1u);
+    case AET_HT_LOW: return h <= 4u;
+    case AET_HT_MID: return h >= 5u && h <= 12u;
+    case AET_HT_HIGH: return h >= 13u;
+    case AET_HT_ALL: return 1;
     default: return 0;
     }
 }
 
-float smg_harm_env(const smg_params_t *p, uint32_t k, float t)   /* attack to 1, decay to sustain, then stays */
+float aet_harm_env(const aet_params_t *p, uint32_t k, float t)   /* attack to 1, decay to sustain, then stays */
 {
     float a = fm_maxf(p->h_att[k], 0.005f), d = fm_maxf(p->h_dec[k], 0.005f), s = fm_clampf(p->h_sus[k], 0.0f, 1.0f);
     if (t < a)
@@ -219,60 +219,60 @@ float smg_harm_env(const smg_params_t *p, uint32_t k, float t)   /* attack to 1,
 }
 
 /* a harmonic's level in a layer: PAD's slope, or HARM's shape and envelopes (the voice's time since its note) */
-static float src_amp(const smg_t *e, uint32_t v, uint32_t h)
+static float src_amp(const aet_t *e, uint32_t v, uint32_t h)
 {
-    const smg_params_t *p = &e->fp;
-    const smg_voice_t *vc = &e->voice[v];
+    const aet_params_t *p = &e->fp;
+    const aet_voice_t *vc = &e->voice[v];
     float a, t;
     uint32_t k;
-    if (p->source != SMG_SRC_HARM)
+    if (p->source != AET_SRC_HARM)
         return pad_amp(p, h);
-    a = smg_harm_level(p, h, vc->vel);
-    t = (float)vc->age * (float)e->hop / (float)SMG_FS;
-    for (k = 0; k < SMG_HENV; k++)
-        if (smg_harm_takes(p->h_target[k], h))
-            a *= smg_harm_env(p, k, t);
+    a = aet_harm_level(p, h, vc->vel);
+    t = (float)vc->age * (float)e->hop / (float)AET_FS;
+    for (k = 0; k < AET_HENV; k++)
+        if (aet_harm_takes(p->h_target[k], h))
+            a *= aet_harm_env(p, k, t);
     return a;
 }
 
-static uint32_t src_hmax(const smg_params_t *p)
+static uint32_t src_hmax(const aet_params_t *p)
 {
-    return p->source == SMG_SRC_HARM ? (p->h_count < 1u ? 1u : p->h_count > SMG_HARM_MAX ? SMG_HARM_MAX : p->h_count)
+    return p->source == AET_SRC_HARM ? (p->h_count < 1u ? 1u : p->h_count > AET_HARM_MAX ? AET_HARM_MAX : p->h_count)
                                      : PAD_HMAX;
 }
 
 /* the units voice_pad_step takes for one layer at this ratio (the same bands, counted) */
-static uint32_t pad_units(const smg_t *e, float ratio)
+static uint32_t pad_units(const aet_t *e, float ratio)
 {
-    const smg_params_t *p = &e->fp;
-    int harm = p->source == SMG_SRC_HARM;
-    float binhz = (float)SMG_FS / (float)e->n, f0 = 261.6256f * ratio, bb = harm ? 0.0f : p->inharm * p->inharm * 0.0015f;
+    const aet_params_t *p = &e->fp;
+    int harm = p->source == AET_SRC_HARM;
+    float binhz = (float)AET_FS / (float)e->n, f0 = 261.6256f * ratio, bb = harm ? 0.0f : p->inharm * p->inharm * 0.0015f;
     float bw = fm_exp2f(fm_clampf(harm ? p->h_band : p->bandwidth, 1.0f, 300.0f) / 1200.0f) - 1.0f;
     uint32_t h, u = PAD_HMAX + 1u, hmax = src_hmax(p);
     for (h = 1; h <= hmax; h++) {
         float fh = f0 * (float)h * fm_sqrtf(1.0f + bb * (float)(h * h));
-        if (fh >= 0.45f * (float)SMG_FS)
+        if (fh >= 0.45f * (float)AET_FS)
             break;
         u += (uint32_t)(6.0f * fm_clampf(0.5f * bw * fh / binhz, 0.75f, 96.0f)) + 10u;
     }
     return u;
 }
 
-static int sbr_on(const smg_t *e)        /* a sample with an envelope whose band ends well below SMG_SBR_HI */
+static int sbr_on(const aet_t *e)        /* a sample with an envelope whose band ends well below AET_SBR_HI */
 {
-    return e->fp.source == SMG_SRC_SAMPLE && e->smp.env && e->smp.env_frames && e->smp.env_hop &&
-           SMG_SBR_LO(e->smp.rate) < 0.9f * SMG_SBR_HI;
+    return e->fp.source == AET_SRC_SAMPLE && e->smp.env && e->smp.env_frames && e->smp.env_hop &&
+           AET_SBR_LO(e->smp.rate) < 0.9f * AET_SBR_HI;
 }
 
-static int needs_analysis(const smg_t *e)
+static int needs_analysis(const aet_t *e)
 {
-    return ((e->fp.source == SMG_SRC_SAMPLE && e->smp.len) || e->fp.source == SMG_SRC_LIVE) &&
+    return ((e->fp.source == AET_SRC_SAMPLE && e->smp.len) || e->fp.source == AET_SRC_LIVE) &&
            !(e->fp.freeze && e->src_ok);
 }
 
 /* the most this frame's job can take, in units, from what it will do: a sudden jump in work (FREEZE let go, more
  * notes, a longer frame) is budgeted for from the frame's first block, before the measured estimate catches up */
-static uint32_t bound(const smg_t *e)
+static uint32_t bound(const aet_t *e)
 {
     uint32_t n = e->n, half = n / 2u, lg = 0, layers = 0, v, b;
     while ((1u << lg) < n)
@@ -282,12 +282,12 @@ static uint32_t bound(const smg_t *e)
         b += 4u * half;
     if (needs_analysis(e))
         b += 3u * n + half * lg + half + (e->fp.spread > 0.001f ? n : 0u) + (sbr_on(e) ? 2u * n : 0u);
-    for (v = 0; v < SMG_VOICES; v++) {
-        const smg_voice_t *vc = &e->voice[v];
+    for (v = 0; v < AET_VOICES; v++) {
+        const aet_voice_t *vc = &e->voice[v];
         float r;
         if (vc->note < 0 || vc->level <= 0.0f)
             continue;
-        if (e->fp.source != SMG_SRC_PAD && e->fp.source != SMG_SRC_HARM) {
+        if (e->fp.source != AET_SRC_PAD && e->fp.source != AET_SRC_HARM) {
             layers += 1u + (e->fp.sub >= 0.001f) + (e->fp.shimmer >= 0.001f);
             continue;
         }
@@ -302,12 +302,12 @@ static uint32_t bound(const smg_t *e)
     return b + b / 16u;                  /* (a margin: the painters' steps round up) */
 }
 
-static void frame_begin(smg_t *e)
+static void frame_begin(aet_t *e)
 {
     uint32_t want;
     float pos;
     e->fp = e->p;                        /* one set of parameters for the whole frame */
-    want = smg_size_n(e->fp.size);
+    want = aet_size_n(e->fp.size);
     if (want != e->n) {
         e->n = want;
         e->hop = want / 2u;
@@ -334,13 +334,13 @@ static void frame_begin(smg_t *e)
         enter(e, S_CLEAR);
 }
 
-static void scan_advance(smg_t *e)       /* once a frame, after its analysis */
+static void scan_advance(aet_t *e)       /* once a frame, after its analysis */
 {
     float len, adv;
-    if (e->fp.source != SMG_SRC_SAMPLE || !e->smp.len || e->fp.freeze || e->fp.stretch <= 0.0f)
+    if (e->fp.source != AET_SRC_SAMPLE || !e->smp.len || e->fp.freeze || e->fp.stretch <= 0.0f)
         return;
     len = (float)e->smp.len;
-    adv = (float)e->hop * (float)e->smp.rate / (float)SMG_FS / fm_maxf(e->fp.stretch, 1.0f);
+    adv = (float)e->hop * (float)e->smp.rate / (float)AET_FS / fm_maxf(e->fp.stretch, 1.0f);
     e->scan += adv;
     if (e->scan >= len)
         e->scan = e->scan_start + (e->scan - len);
@@ -359,11 +359,11 @@ static const int16_t AD_STEP[89] = {
 
 /* sample i of an ADPCM sample: decoded forward from where the reader is, or from its block's start. The engine reads
  * forward (with a step back of one for the interpolation), so this is a few operations a sample */
-static int32_t adpcm_at(smg_t *e, uint32_t i)
+static int32_t adpcm_at(aet_t *e, uint32_t i)
 {
-    smg_adpcm_t *a = &e->ad;
-    uint32_t b = i / SMG_ADPCM_BLOCK, j = i % SMG_ADPCM_BLOCK;
-    const uint8_t *blk = e->smp.data + b * SMG_ADPCM_BYTES;
+    aet_adpcm_t *a = &e->ad;
+    uint32_t b = i / AET_ADPCM_BLOCK, j = i % AET_ADPCM_BLOCK;
+    const uint8_t *blk = e->smp.data + b * AET_ADPCM_BYTES;
     if (b == a->blk && j == a->pos)
         return a->pred;
     if (b == a->blk && j + 1u == a->pos)
@@ -393,30 +393,30 @@ static int32_t adpcm_at(smg_t *e, uint32_t i)
     return a->pred;
 }
 
-int32_t smg_sample_read(smg_t *e, uint32_t i)
+int32_t aet_sample_read(aet_t *e, uint32_t i)
 {
     if (!e->smp.data || i >= e->smp.len)
         return 0;
-    if (e->smp.fmt == SMG_FMT_ADPCM)
+    if (e->smp.fmt == AET_FMT_ADPCM)
         return adpcm_at(e, i);
     return (int16_t)(e->smp.data[2u * i] | e->smp.data[2u * i + 1u] << 8);
 }
 
-/* the source around the scan, resampled to SMG_FS, Hann-windowed (the window squared: sin^2); LIVE: the newest n
+/* the source around the scan, resampled to AET_FS, Hann-windowed (the window squared: sin^2); LIVE: the newest n
  * samples of the ring */
-static void load_step(smg_t *e)
+static void load_step(aet_t *e)
 {
     uint32_t n = e->n, k = e->i, end = k + CHUNK < n ? k + CHUNK : n, len = e->smp.len;
-    float rs = (float)e->smp.rate / (float)SMG_FS, flen = (float)len;
+    float rs = (float)e->smp.rate / (float)AET_FS, flen = (float)len;
     float t = e->scan - (float)(n / 2u) * rs + (float)k * rs;
     if (k == 0)
         e->load_scan = e->scan;
-    if (e->fp.source == SMG_SRC_LIVE) {
+    if (e->fp.source == AET_SRC_LIVE) {
         if (k == 0)
             e->live_at = e->ring_w - n;
         for (; k < end; k++) {
             float w = win_at(e, k);
-            e->work[2u * k] = e->ring[(e->live_at + k) & (SMG_NMAX - 1u)] * w * w;
+            e->work[2u * k] = e->ring[(e->live_at + k) & (AET_NMAX - 1u)] * w * w;
             e->work[2u * k + 1u] = 0.0f;
         }
         k = end;
@@ -433,8 +433,8 @@ static void load_step(smg_t *e)
             i0 = len - 1u;
         i1 = i0 + 1u < len ? i0 + 1u : 0u;
         fr = tt - (float)i0;
-        s0 = (float)smg_sample_read(e, i0);
-        s1 = (float)smg_sample_read(e, i1);
+        s0 = (float)aet_sample_read(e, i0);
+        s1 = (float)aet_sample_read(e, i1);
         w = win_at(e, k);
         e->work[2u * k] = (s0 + fr * (s1 - s0)) * (1.0f / 32768.0f) * w * w;
         e->work[2u * k + 1u] = 0.0f;
@@ -445,15 +445,15 @@ static void load_step(smg_t *e)
         enter(e, S_AREV);
 }
 
-void smg_live_push(smg_t *e, const float *x, uint32_t n)
+void aet_live_push(aet_t *e, const float *x, uint32_t n)
 {
     uint32_t k, w = e->ring_w;
     for (k = 0; k < n; k++)
-        e->ring[(w + k) & (SMG_NMAX - 1u)] = x[k];
+        e->ring[(w + k) & (AET_NMAX - 1u)] = x[k];
     e->ring_w = w + n;
 }
 
-static void mag_step(smg_t *e)
+static void mag_step(aet_t *e)
 {
     uint32_t half = e->n / 2u, k = e->i, end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u;
     float norm = 4.0f / (float)e->n;     /* 2 / sum of the Hann window: a sine's peak bin reads its amplitude */
@@ -472,17 +472,17 @@ static void mag_step(smg_t *e)
 
 /* SBR1: the band edges, then each bin above the sample's band from its top octave (k halved until it falls in
  * [kc / 2, kc)), the bands' energies summed */
-static void sbr_fill_step(smg_t *e)
+static void sbr_fill_step(aet_t *e)
 {
     uint32_t half = e->n / 2u, k, end, b;
-    float binhz = (float)SMG_FS / (float)e->n, kc;
+    float binhz = (float)AET_FS / (float)e->n, kc;
     if (e->i == 0) {
-        float lo = SMG_SBR_LO(e->smp.rate), hi = SMG_SBR_HI;
-        for (b = 0; b <= SMG_SBR_BANDS; b++) {
-            uint32_t edge = (uint32_t)(lo * fm_exp2f(fm_log2f(hi / lo) * (float)b / (float)SMG_SBR_BANDS) / binhz);
+        float lo = AET_SBR_LO(e->smp.rate), hi = AET_SBR_HI;
+        for (b = 0; b <= AET_SBR_BANDS; b++) {
+            uint32_t edge = (uint32_t)(lo * fm_exp2f(fm_log2f(hi / lo) * (float)b / (float)AET_SBR_BANDS) / binhz);
             e->sbr_edge[b] = edge < half ? edge : half;
         }
-        for (b = 0; b < SMG_SBR_BANDS; b++)
+        for (b = 0; b < AET_SBR_BANDS; b++)
             e->sbr_p[b] = 0.0f;
         e->i = e->sbr_edge[0];
         e->j = 0;
@@ -493,13 +493,13 @@ static void sbr_fill_step(smg_t *e)
     for (; k < end; k++) {
         float idx = (float)k, v = 0.0f, fr;
         uint32_t i0;
-        if (k < e->sbr_edge[SMG_SBR_BANDS] && kc >= 4.0f) {
+        if (k < e->sbr_edge[AET_SBR_BANDS] && kc >= 4.0f) {
             while (idx >= kc)
                 idx *= 0.5f;
             i0 = (uint32_t)idx;
             fr = idx - (float)i0;
             v = (float)(i0 + 1u) < kc ? e->src[i0] + fr * (e->src[i0 + 1u] - e->src[i0]) : e->src[i0];
-            while (e->j + 1u < SMG_SBR_BANDS && k >= e->sbr_edge[e->j + 1u])
+            while (e->j + 1u < AET_SBR_BANDS && k >= e->sbr_edge[e->j + 1u])
                 e->j++;
             e->sbr_p[e->j] += v * v;
         }
@@ -512,11 +512,11 @@ static void sbr_fill_step(smg_t *e)
 }
 
 /* SBR2: the gains, from the envelope at the scan (interpolated between its frames, in dB), then applied */
-static void sbr_gain_step(smg_t *e)
+static void sbr_gain_step(aet_t *e)
 {
     uint32_t k, end, b, half = e->n / 2u;
     if (e->i == 0) {
-        const smg_sample_t *sm = &e->smp;
+        const aet_sample_t *sm = &e->smp;
         float pos = e->load_scan / (float)sm->env_hop, fr;
         uint32_t f0;
         if (pos < 0.0f)
@@ -528,9 +528,9 @@ static void sbr_gain_step(smg_t *e)
         } else {
             fr = pos - (float)f0;
         }
-        for (b = 0; b < SMG_SBR_BANDS; b++) {
-            float qa = (float)sm->env[f0 * SMG_SBR_BANDS + b];
-            float qb = (float)sm->env[(f0 + (fr > 0.0f ? 1u : 0u)) * SMG_SBR_BANDS + b];
+        for (b = 0; b < AET_SBR_BANDS; b++) {
+            float qa = (float)sm->env[f0 * AET_SBR_BANDS + b];
+            float qb = (float)sm->env[(f0 + (fr > 0.0f ? 1u : 0u)) * AET_SBR_BANDS + b];
             float q = qa + fr * (qb - qa), want, g = 0.0f;
             if (q > 0.5f && e->sbr_p[b] > 1e-24f) {
                 want = fm_exp2f((q * 0.5f - 120.0f) * 0.33219281f);   /* 10^(dB / 10) */
@@ -544,20 +544,20 @@ static void sbr_gain_step(smg_t *e)
         e->j = 0;
     }
     k = e->i;
-    end = k + CHUNK < e->sbr_edge[SMG_SBR_BANDS] ? k + CHUNK : e->sbr_edge[SMG_SBR_BANDS];
+    end = k + CHUNK < e->sbr_edge[AET_SBR_BANDS] ? k + CHUNK : e->sbr_edge[AET_SBR_BANDS];
     for (; k < end; k++) {
-        while (e->j + 1u < SMG_SBR_BANDS && k >= e->sbr_edge[e->j + 1u])
+        while (e->j + 1u < AET_SBR_BANDS && k >= e->sbr_edge[e->j + 1u])
             e->j++;
         e->src[k] *= e->sbr_p[e->j];
     }
     e->units += end > e->i ? end - e->i : 0u;
     e->i = end;
-    if (end >= e->sbr_edge[SMG_SBR_BANDS] || end >= half)
+    if (end >= e->sbr_edge[AET_SBR_BANDS] || end >= half)
         enter(e, e->fp.spread > 0.001f ? S_SPR1 : S_CLEAR);
 }
 
 /* SPREAD: prefix sums of src into the (now free) FFT buffer, then each bin the mean of [k - w, k + w] */
-static void spread_step(smg_t *e)
+static void spread_step(aet_t *e)
 {
     float *ps = e->work;
     uint32_t half = e->n / 2u, k = e->i, end;
@@ -590,10 +590,10 @@ static void spread_step(smg_t *e)
 /* Painting the voices into the spectrum: a cursor walks voices (vfirst, vfirst + vstep, ...), their layers (0 the note,
  * 1 an octave down, 2 an octave up) and the bins or harmonics of each, adding into its own spectrum (acc, or acc2 for
  * the second core's cursor). Two cursors can run at once on two cores: they share nothing they write. */
-static int layer_next(smg_t *e, smg_cur_t *c)
+static int layer_next(aet_t *e, aet_cur_t *c)
 {
-    for (; c->v < SMG_VOICES; c->v += c->vstep, c->layer = 0) {
-        smg_voice_t *vc = &e->voice[c->v];
+    for (; c->v < AET_VOICES; c->v += c->vstep, c->layer = 0) {
+        aet_voice_t *vc = &e->voice[c->v];
         if (vc->note < 0 || vc->level <= 0.0f)
             continue;
         for (; c->layer < 3u; c->layer++) {
@@ -610,13 +610,13 @@ static int layer_next(smg_t *e, smg_cur_t *c)
     c->done = 1;
     return 0;
 }
-static void layer_done(smg_t *e, smg_cur_t *c)
+static void layer_done(aet_t *e, aet_cur_t *c)
 {
     c->layer++;
     layer_next(e, c);
 }
 
-static void cur_start(smg_t *e, smg_cur_t *c, uint32_t first, uint32_t step, float *acc)
+static void cur_start(aet_t *e, aet_cur_t *c, uint32_t first, uint32_t step, float *acc)
 {
     c->v = first;
     c->vstep = step;
@@ -628,7 +628,7 @@ static void cur_start(smg_t *e, smg_cur_t *c, uint32_t first, uint32_t step, flo
 }
 
 /* SAMPLE: the source spectrum moved by the note's ratio (bin k reads src at k / ratio) */
-static void voice_sample_step(smg_t *e, smg_cur_t *c)
+static void voice_sample_step(aet_t *e, aet_cur_t *c)
 {
     uint32_t half = e->n / 2u, k = c->i ? c->i : 1u, end = k + CHUNK < half ? k + CHUNK : half;
     float inv = 1.0f / c->ratio, g = c->gain, *acc = c->acc;
@@ -654,17 +654,17 @@ static inline float gauss(const float *gt, float x)   /* x >= 0 */
 {
     float f = x * GT_STEP;
     uint32_t i = (uint32_t)f;
-    if (i >= SMG_GT - 1u)
+    if (i >= AET_GT - 1u)
         return 0.0f;
     f -= (float)i;
     return gt[i] + f * (gt[i + 1u] - gt[i]);
 }
 
-static void voice_pad_step(smg_t *e, smg_cur_t *c)   /* PAD and HARM: one harmonic a step */
+static void voice_pad_step(aet_t *e, aet_cur_t *c)   /* PAD and HARM: one harmonic a step */
 {
-    const smg_params_t *p = &e->fp;
-    int harm = p->source == SMG_SRC_HARM;
-    float binhz = (float)SMG_FS / (float)e->n, half = (float)(e->n / 2u);
+    const aet_params_t *p = &e->fp;
+    int harm = p->source == AET_SRC_HARM;
+    float binhz = (float)AET_FS / (float)e->n, half = (float)(e->n / 2u);
     float f0 = 261.6256f * c->ratio, bb = harm ? 0.0f : p->inharm * p->inharm * 0.0015f;
     float bw = fm_exp2f(fm_clampf(harm ? p->h_band : p->bandwidth, 1.0f, 300.0f) / 1200.0f) - 1.0f;
     uint32_t h = c->i + 1u, hmax = src_hmax(p);
@@ -673,15 +673,15 @@ static void voice_pad_step(smg_t *e, smg_cur_t *c)   /* PAD and HARM: one harmon
     if (h == 1u) {                       /* the voice's norm: its harmonics' power summed, to an RMS of 0.25 */
         float pw = 0.0f;
         uint32_t q;
-        for (q = 1; q <= hmax && f0 * (float)q < 0.45f * (float)SMG_FS; q++) {
-            float aq = harm ? smg_harm_level(p, q, e->voice[c->v].vel) : pad_amp(p, q);
+        for (q = 1; q <= hmax && f0 * (float)q < 0.45f * (float)AET_FS; q++) {
+            float aq = harm ? aet_harm_level(p, q, e->voice[c->v].vel) : pad_amp(p, q);
             pw += aq * aq;
         }
         c->norm = pw > 0.0f ? 0.22f * fm_rsqrtf(pw) : 0.0f;
         c->units += q;
     }
     fh = f0 * (float)h * fm_sqrtf(1.0f + bb * (float)(h * h));
-    if (h > hmax || fh >= 0.45f * (float)SMG_FS) {
+    if (h > hmax || fh >= 0.45f * (float)AET_FS) {
         layer_done(e, c);
         return;
     }
@@ -707,11 +707,11 @@ static void voice_pad_step(smg_t *e, smg_cur_t *c)   /* PAD and HARM: one harmon
 }
 
 /* a cursor's work for up to budget units (the second core runs this for its cursor) */
-static void paint(smg_t *e, smg_cur_t *c, uint32_t budget)
+static void paint(aet_t *e, aet_cur_t *c, uint32_t budget)
 {
     uint32_t start = c->units;
     while (!c->done && c->units - start < budget) {
-        if (e->fp.source == SMG_SRC_PAD || e->fp.source == SMG_SRC_HARM)
+        if (e->fp.source == AET_SRC_PAD || e->fp.source == AET_SRC_HARM)
             voice_pad_step(e, c);
         else if (e->src_ok)
             voice_sample_step(e, c);
@@ -720,7 +720,7 @@ static void paint(smg_t *e, smg_cur_t *c, uint32_t budget)
     }
 }
 
-static void clear_step(smg_t *e)
+static void clear_step(aet_t *e)
 {
     uint32_t half = e->n / 2u, k = e->i, end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u;
     for (; k < end; k++)
@@ -732,7 +732,7 @@ static void clear_step(smg_t *e)
     e->i = end;
     if (end > half) {
         uint32_t b;
-        for (b = 0; b < SMG_DISP; b++)
+        for (b = 0; b < AET_DISP; b++)
             e->disp_acc[b] = 0.0f;
         enter(e, S_VOICE);
         cur_start(e, &e->c0, 0, e->dual ? 2u : 1u, e->acc);
@@ -744,12 +744,12 @@ static void clear_step(smg_t *e)
 }
 
 /* acc with random phases: A (left) and B (right), packed X[k] = A + iB, X[n-k] = conj(A) + i conj(B) */
-static void phase_step(smg_t *e)
+static void phase_step(aet_t *e)
 {
     float *x = e->work;
     const float *qs = e->qs;
     uint32_t n = e->n, half = n / 2u, k = e->i, end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u;
-    float binhz = (float)SMG_FS / (float)n, lb = fm_log2f(binhz), tilt = fm_clampf(e->fp.tilt, -1.0f, 1.0f);
+    float binhz = (float)AET_FS / (float)n, lb = fm_log2f(binhz), tilt = fm_clampf(e->fp.tilt, -1.0f, 1.0f);
     float t500 = lb - 8.965784f;         /* log2(bin Hz / 500) */
     float lp_x = e->fp.lp_hz > 0.0f ? binhz / e->fp.lp_hz : 0.0f;   /* f / fc a bin */
     float lp_iq2 = 1.0f / ((0.55f + 7.5f * e->fp.lp_reso * e->fp.lp_reso) * (0.55f + 7.5f * e->fp.lp_reso * e->fp.lp_reso));
@@ -773,15 +773,15 @@ static void phase_step(smg_t *e)
             float x = lp_x * (float)k, x2 = x * x, d = (1.0f - x2) * (1.0f - x2);
             m *= fm_rsqrtf(d + x2 * lp_iq2) * fm_rsqrtf(d + 2.0f * x2);
         }
-        bi_ = (int32_t)((lk + lb - DISP_LO_LOG2) * ((float)SMG_DISP / DISP_SPAN_LOG2));
-        if (bi_ >= 0 && bi_ < (int32_t)SMG_DISP) {
+        bi_ = (int32_t)((lk + lb - DISP_LO_LOG2) * ((float)AET_DISP / DISP_SPAN_LOG2));
+        if (bi_ >= 0 && bi_ < (int32_t)AET_DISP) {
             b = (uint32_t)bi_;
             if (m > e->disp_acc[b])
                 e->disp_acc[b] = m;
         }
         m *= 0.5f;                       /* the two Hermitian halves add up to m cos(...) */
-        t1 = rnd(e) & (SMG_NMAX - 1u);
-        t2 = rnd(e) & (SMG_NMAX - 1u);
+        t1 = rnd(e) & (AET_NMAX - 1u);
+        t2 = rnd(e) & (AET_NMAX - 1u);
         ar = m * q_cos(qs, t1);
         ai = m * q_sin(qs, t1);
         br = m * q_cos(qs, t2);
@@ -797,7 +797,7 @@ static void phase_step(smg_t *e)
         enter(e, S_SREV);
 }
 
-static void win_step(smg_t *e)           /* sin(pi (k + 0.5) / n), the first half (the window is symmetric) */
+static void win_step(aet_t *e)           /* sin(pi (k + 0.5) / n), the first half (the window is symmetric) */
 {
     uint32_t k = e->i, end = k + CHUNK < e->hop ? k + CHUNK : e->hop;
     for (; k < end; k++)
@@ -814,7 +814,7 @@ static void win_step(smg_t *e)           /* sin(pi (k + 0.5) / n), the first hal
 }
 
 /* one step of the job; the units it took are added to e->units */
-static void step(smg_t *e)
+static void step(aet_t *e)
 {
     switch (e->st) {
     case S_WIN: win_step(e); break;
@@ -834,7 +834,7 @@ static void step(smg_t *e)
     case S_SPR2: spread_step(e); break;
     case S_CLEAR: clear_step(e); break;
     case S_VOICE: {                      /* core 0's cursor; the second's too when there is no second core */
-        smg_cur_t *c = !e->c0.done ? &e->c0 : &e->c1;
+        aet_cur_t *c = !e->c0.done ? &e->c0 : &e->c1;
         uint32_t u = c->units;
         if (!c->done)
             paint(e, c, CHUNK);
@@ -858,11 +858,11 @@ static void step(smg_t *e)
 
 static void par_job(void *arg)            /* on the second core: its cursor, for the budget it was given */
 {
-    smg_t *e = (smg_t *)arg;
+    aet_t *e = (aet_t *)arg;
     paint(e, &e->c1, e->par_budget);
 }
 
-static void work(smg_t *e, uint32_t budget)   /* budget: units; 0xFFFFFFFF = to the end of the frame */
+static void work(aet_t *e, uint32_t budget)   /* budget: units; 0xFFFFFFFF = to the end of the frame */
 {
     uint32_t spent = 0;
     while (e->st != S_DONE && spent < budget) {
@@ -892,7 +892,7 @@ static void work(smg_t *e, uint32_t budget)   /* budget: units; 0xFFFFFFFF = to 
 }
 
 /* the play buffer ran out: the finished frame (windowed, mixed to stereo) over the last tail */
-static void swap(smg_t *e)
+static void swap(aet_t *e)
 {
     uint32_t hop = e->hop, k;
     float th = fm_clampf(e->fp.width, 0.0f, 1.0f) * (FM_PI * 0.25f), c = fm_cosf(th), s = fm_sinf(th);
@@ -910,7 +910,7 @@ static void swap(smg_t *e)
         e->tail[0][k] = c * a1 + s * b1;
         e->tail[1][k] = c * a1 - s * b1;
     }
-    for (k = 0; k < SMG_DISP; k++)       /* the display: up fast, down slowly */
+    for (k = 0; k < AET_DISP; k++)       /* the display: up fast, down slowly */
         e->disp[k] = e->disp_acc[k] > e->disp[k] ? e->disp_acc[k] : e->disp[k] * 0.8f + e->disp_acc[k] * 0.2f;
     e->play_len = hop;
     e->play_pos = 0;
@@ -936,7 +936,7 @@ static inline float ceiling(float x)    /* a soft ceiling: linear up to 0.5, the
     return x < 0.0f ? -y : y;
 }
 
-void smg_render(smg_t *e, float *l, float *r, uint32_t n)
+void aet_render(aet_t *e, float *l, float *r, uint32_t n)
 {
     uint32_t i = 0;
     /* this block's share of the frame's work, with a margin, so the frame is done before the play buffer is */
@@ -961,24 +961,24 @@ void smg_render(smg_t *e, float *l, float *r, uint32_t n)
 }
 
 /* ------------------------------------------------------------------ voices --- */
-void smg_note_on(smg_t *e, int32_t note, float vel)
+void aet_note_on(aet_t *e, int32_t note, float vel)
 {
     uint32_t v, best = 0;
     float best_level = 2.0f;
     if (note < 0 || note > 127)
         return;
-    for (v = 0; v < SMG_VOICES; v++)     /* the same note again: that voice */
+    for (v = 0; v < AET_VOICES; v++)     /* the same note again: that voice */
         if (e->voice[v].note == note) {
             best = v;
             goto found;
         }
-    for (v = 0; v < SMG_VOICES; v++)     /* a free voice */
+    for (v = 0; v < AET_VOICES; v++)     /* a free voice */
         if (e->voice[v].note < 0) {
             best = v;
             e->voice[v].level = 0.0f;
             goto found;
         }
-    for (v = 0; v < SMG_VOICES; v++) {   /* else the quietest released one, or the quietest */
+    for (v = 0; v < AET_VOICES; v++) {   /* else the quietest released one, or the quietest */
         float lv = e->voice[v].level + (e->voice[v].gate ? 1.0f : 0.0f);
         if (lv < best_level) {
             best_level = lv;
@@ -993,49 +993,49 @@ found:
     e->voice[best].age = 0;
 }
 
-void smg_note_off(smg_t *e, int32_t note)
+void aet_note_off(aet_t *e, int32_t note)
 {
     uint32_t v;
-    for (v = 0; v < SMG_VOICES; v++)
+    for (v = 0; v < AET_VOICES; v++)
         if (e->voice[v].note == note)
             e->voice[v].gate = 0;
 }
 
-void smg_all_off(smg_t *e)
+void aet_all_off(aet_t *e)
 {
     uint32_t v;
-    for (v = 0; v < SMG_VOICES; v++)
+    for (v = 0; v < AET_VOICES; v++)
         e->voice[v].gate = 0;
 }
 
-void smg_panic(smg_t *e)
+void aet_panic(aet_t *e)
 {
     uint32_t v, k;
-    for (v = 0; v < SMG_VOICES; v++) {
+    for (v = 0; v < AET_VOICES; v++) {
         e->voice[v].note = -1;
         e->voice[v].gate = 0;
         e->voice[v].level = 0.0f;
     }
-    for (k = 0; k < SMG_NMAX / 2u; k++)
+    for (k = 0; k < AET_NMAX / 2u; k++)
         e->play[0][k] = e->play[1][k] = e->tail[0][k] = e->tail[1][k] = 0.0f;
 }
 
-int smg_active(const smg_t *e)
+int aet_active(const aet_t *e)
 {
     int c = 0;
     uint32_t v;
-    for (v = 0; v < SMG_VOICES; v++)
+    for (v = 0; v < AET_VOICES; v++)
         c += e->voice[v].note >= 0;
     return c;
 }
 
-void smg_set_sample(smg_t *e, const void *data, uint32_t len, uint32_t rate, uint32_t fmt)
+void aet_set_sample(aet_t *e, const void *data, uint32_t len, uint32_t rate, uint32_t fmt)
 {
     e->smp.data = len ? (const uint8_t *)data : 0;
     e->smp.len = data ? len : 0u;
-    e->smp.rate = rate ? rate : SMG_FS;
-    e->smp.fmt = fmt < SMG_NFMT ? fmt : SMG_FMT_PCM16;
-    e->smp.env = 0;                      /* (smg_set_env gives the new one its own) */
+    e->smp.rate = rate ? rate : AET_FS;
+    e->smp.fmt = fmt < AET_NFMT ? fmt : AET_FMT_PCM16;
+    e->smp.env = 0;                      /* (aet_set_env gives the new one its own) */
     e->smp.env_frames = 0;
     e->ad.blk = 0xFFFFFFFFu;
     e->src_ok = 0;
@@ -1044,7 +1044,7 @@ void smg_set_sample(smg_t *e, const void *data, uint32_t len, uint32_t rate, uin
     e->units_bound = bound(e);           /* the frame under way may have to analyse now */
 }
 
-void smg_set_env(smg_t *e, const uint8_t *env, uint32_t frames, uint32_t hop)
+void aet_set_env(aet_t *e, const uint8_t *env, uint32_t frames, uint32_t hop)
 {
     e->smp.env = frames && hop ? env : 0;
     e->smp.env_frames = env ? frames : 0u;
@@ -1053,10 +1053,10 @@ void smg_set_env(smg_t *e, const uint8_t *env, uint32_t frames, uint32_t hop)
     e->units_bound = bound(e);
 }
 
-void smg_defaults(smg_params_t *p)
+void aet_defaults(aet_params_t *p)
 {
-    p->source = SMG_SRC_SAMPLE;
-    p->size = SMG_SIZE_8K;
+    p->source = AET_SRC_SAMPLE;
+    p->size = AET_SIZE_8K;
     p->freeze = 0;
     p->rsv = 0;
     p->stretch = 40.0f;
@@ -1085,21 +1085,21 @@ void smg_defaults(smg_params_t *p)
     p->h_boost = 0.0f;
     p->h_width = 1.5f;
     p->h_vel = 0.5f;
-    for (int k = 0; k < (int)SMG_HENV; k++) {
-        p->h_target[k] = SMG_HT_OFF;
+    for (int k = 0; k < (int)AET_HENV; k++) {
+        p->h_target[k] = AET_HT_OFF;
         p->h_att[k] = 0.5f;
         p->h_dec[k] = 2.0f;
         p->h_sus[k] = 0.5f;
     }
 }
 
-void smg_init(smg_t *e, float *ram)
+void aet_init(aet_t *e, float *ram)
 {
     uint32_t k;
     float *m = ram;
-    smg_params_t keep;
-    smg_defaults(&keep);
-    for (k = 0; k < SMG_RAM_FLOATS; k++)
+    aet_params_t keep;
+    aet_defaults(&keep);
+    for (k = 0; k < AET_RAM_FLOATS; k++)
         ram[k] = 0.0f;
     {   /* the struct to zero, the parameters to their defaults */
         uint8_t *b = (uint8_t *)e;
@@ -1107,39 +1107,39 @@ void smg_init(smg_t *e, float *ram)
             b[k] = 0;
     }
     e->p = keep;
-    e->work = m; m += 2u * SMG_NMAX;
-    e->src = m; m += SMG_NMAX / 2u + 1u;
-    e->acc = m; m += SMG_NMAX / 2u + 1u;
-    e->acc2 = m; m += SMG_NMAX / 2u + 1u;
-    e->play[0] = m; m += SMG_NMAX / 2u;
-    e->play[1] = m; m += SMG_NMAX / 2u;
-    e->tail[0] = m; m += SMG_NMAX / 2u;
-    e->tail[1] = m; m += SMG_NMAX / 2u;
-    e->win = m; m += SMG_NMAX / 2u;
-    e->qs = m; m += SMG_NMAX / 4u + 1u;
+    e->work = m; m += 2u * AET_NMAX;
+    e->src = m; m += AET_NMAX / 2u + 1u;
+    e->acc = m; m += AET_NMAX / 2u + 1u;
+    e->acc2 = m; m += AET_NMAX / 2u + 1u;
+    e->play[0] = m; m += AET_NMAX / 2u;
+    e->play[1] = m; m += AET_NMAX / 2u;
+    e->tail[0] = m; m += AET_NMAX / 2u;
+    e->tail[1] = m; m += AET_NMAX / 2u;
+    e->win = m; m += AET_NMAX / 2u;
+    e->qs = m; m += AET_NMAX / 4u + 1u;
     e->ring = m;
     e->ad.blk = 0xFFFFFFFFu;
-    for (k = 0; k < SMG_GT; k++) {
+    for (k = 0; k < AET_GT; k++) {
         float x = (float)k / GT_STEP;
         e->gt[k] = fm_expf(-0.5f * x * x);
     }
-    e->gt[SMG_GT - 1u] = 0.0f;
+    e->gt[AET_GT - 1u] = 0.0f;
     for (k = 0; k <= QN; k++)
-        e->qs[k] = fm_sinf(FM_TWO_PI * (float)k / (float)SMG_NMAX);
+        e->qs[k] = fm_sinf(FM_TWO_PI * (float)k / (float)AET_NMAX);
     e->qs[QN] = 1.0f;
-    for (k = 0; k < SMG_VOICES; k++)
+    for (k = 0; k < AET_VOICES; k++)
         e->voice[k].note = -1;
     e->rng = 0x9E3779B9u;
     e->units_est = 0;                    /* measured from the first frame; until then, the bound */
     e->last_position = -1.0f;
-    e->n = smg_size_n(e->p.size);
+    e->n = aet_size_n(e->p.size);
     e->hop = e->n / 2u;
     e->play_len = e->hop;                /* the first hop is silence while the first frame is made */
     e->fp = e->p;
     frame_begin(e);
 }
 
-void smg_set_par(smg_t *e, int (*run)(void (*fn)(void *), void *arg), int (*wait)(void))
+void aet_set_par(aet_t *e, int (*run)(void (*fn)(void *), void *arg), int (*wait)(void))
 {
     e->par_run = run && wait ? run : 0;
     e->par_wait = run && wait ? wait : 0;

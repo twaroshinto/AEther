@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
-# SMUGA's words for a screen reader (fm1-reader): the text on the screen <TAB> what to say.
-# url: https://twaroshinto.github.io/fm1-smuga/words/
-SMUGA	smuga
+# AETHER's words for a screen reader (fm1-reader): the text on the screen <TAB> what to say.
+# url: https://twaroshinto.github.io/fm1-aether/words/
+AETHER	aether
 INF	infinite
 CT	cents
 DB	decibels per octave

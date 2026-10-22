@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
-# Copyright (C) 2026 fm1-smuga contributors
-"""SMUGA's sample format SMG_FMT_ADPCM (app/dsp/smuga.h): IMA ADPCM, 4 bits a sample, in blocks of 256 samples of
+# Copyright (C) 2026 fm1-aether contributors
+"""AETHER's sample format AET_FMT_ADPCM (app/dsp/aether.h): IMA ADPCM, 4 bits a sample, in blocks of 256 samples of
 132 bytes each: the first sample (int16 LE), the step index, a zero byte, then 255 codes, two a byte, low nibble first.
 Every block starts afresh, so the engine can read from any point. The encoder mirrors the C decoder exactly."""
 import struct
@@ -28,7 +28,7 @@ def _step(pred, idx, code):
 
 
 def encode(pcm):
-    """int16 samples -> bytes (SMG_ADPCM_SIZE(len(pcm)) of them)"""
+    """int16 samples -> bytes (AET_ADPCM_SIZE(len(pcm)) of them)"""
     out = bytearray()
     idx = 0
     for b0 in range(0, len(pcm), BLOCK):

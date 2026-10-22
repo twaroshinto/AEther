@@ -1,6 +1,6 @@
-# SMUGA: instrukcja obsługi
+# AEther: instrukcja obsługi
 
-SMUGA to firmware dla M-VAVE FM-1, które zamienia każdy dźwięk w gęstą, nieskończoną chmurę. Działa jak
+AEther to firmware dla M-VAVE FM-1, które zamienia każdy dźwięk w gęstą, nieskończoną chmurę. Działa jak
 PaulStretch: bierze długi fragment dźwięku, zachowuje jego barwę (widmo), a fazy zastępuje losowymi. Dźwięk
 traci ataki i rytm, a zostaje sam kolor. Klawiatura przesuwa ten kolor na wysokość nuty, więc grasz nim akordy.
 
@@ -285,9 +285,9 @@ Nuty z klawiatury FM-1 wychodzą po USB.
 
 ```sh
 pip install numpy mido python-rtmidi
-python3 tools/smuga_load.py moj.wav                 # do 24 s, 22 kHz + odbudowa górnego pasma (SBR)
-python3 tools/smuga_load.py moj.wav --rate 11025    # do 48 s
-python3 tools/smuga_load.py moj.wav --pcm16         # bez szumu kompresji, do 6 s
+python3 tools/aether_load.py moj.wav                 # do 24 s, 22 kHz + odbudowa górnego pasma (SBR)
+python3 tools/aether_load.py moj.wav --rate 11025    # do 48 s
+python3 tools/aether_load.py moj.wav --pcm16         # bez szumu kompresji, do 6 s
 ```
 
 Po wgraniu źródło przełącza się na USER, a sample zostaje w pamięci po wyłączeniu. Wgrywanie nie działa w
@@ -295,7 +295,7 @@ emulatorze.
 
 ## Emulator w przeglądarce
 
-Ten sam firmware działa w przeglądarce: zbuduj `./build.sh --web` albo pobierz artefakt `smuga-emulator` z CI.
+Ten sam firmware działa w przeglądarce: zbuduj `./build.sh --web` albo pobierz artefakt `aether-emulator` z CI.
 Kliknij **Switch on**. Gałki kręcisz przeciągnięciem w górę/dół, kółkiem albo strzałkami. Akordy myszką robisz
 Shift-klikiem (klawisz zostaje wciśnięty).
 

@@ -11,7 +11,7 @@
  * hold (C1_CON bit 1 set, bit 3 cleared) at every start and crash. On some units core 1 misreads RAM under load:
  * each job carries a check word, and a wrong job or a late answer gives the core up until power-off.
  *
- * The engine hands it half the voices of each frame (dsp/smuga.c smg_set_par): core1_run / core1_wait. Part of the
+ * The engine hands it half the voices of each frame (dsp/aether.c aet_set_par): core1_run / core1_wait. Part of the
  * app's unity build on the device only (app.c includes it; the host and the emulator run one core). */
 #define C1_CON (*(volatile uint32_t *)0x1EEE004u)
 #define C1_CLK (*(volatile uint32_t *)0x00010008u)
@@ -139,7 +139,7 @@ static int core1_start(void)
     return 0;
 }
 
-/* the engine's hooks (smg_set_par): a job, then waiting for it inside the same audio interrupt */
+/* the engine's hooks (aet_set_par): a job, then waiting for it inside the same audio interrupt */
 static int core1_run(void (*fn)(void *), void *arg)
 {
     uint32_t job;

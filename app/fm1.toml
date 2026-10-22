@@ -1,17 +1,17 @@
-# SMUGA's build settings (fm1-base's tools/build.py: ./build.sh)
-name = "SMUGA"                 # the build's files: smuga.fwsc, smuga-X.Y.fwsc
+# AETHER's build settings (fm1-base's tools/build.py: ./build.sh)
+name = "AETHER"                 # the build's files: aether.fwsc, aether-X.Y.fwsc
 id_prefix = "FM-1_37"          # package identity: dev FM-1_3700, releases FM-1_37XXYYZZ
-usb_manufacturer = "fm1-smuga"
-usb_product = "SMUGA FM-1"
+usb_manufacturer = "fm1-aether"
+usb_product = "AETHER FM-1"
 include = ["dsp"]
 vendored = ["hw/"]             # the second core: its registers (experimental, off unless SETUP turns it on)
 asm = ["hw/core1.S"]
-o2 = ["dsp/smuga.c", "dsp/va.c"]   # the engine and the VA source at -O2
-gen = ["tools/gen_source.py --out {gen}/smuga_source.h"]   # the built-in source (generated, not committed)
+o2 = ["dsp/aether.c", "dsp/va.c"]   # the engine and the VA source at -O2
+gen = ["tools/gen_source.py --out {gen}/aether_source.h"]   # the built-in source (generated, not committed)
 words = "words.tsv"
 ble = false                    # no Bluetooth: its RAM goes to the spectral frames
 # the site
 tagline = "a PaulStretch-style spectral synthesizer for the FM-1"
-repo = "https://github.com/twaroshinto/fm1-smuga"
+repo = "https://github.com/twaroshinto/AEther"
 licence = "MPL-2.0"
 credits = "Built on fm1-base and felucca-bsp. The idea of random phases over long windows is Nasca Octavian Paul's (PaulStretch, PADsynth)."

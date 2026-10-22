@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MPL-2.0
-# Copyright (C) 2026 fm1-smuga contributors
-"""Load a sample into SMUGA on an FM-1 over USB-MIDI (SysEx), for its USER source.
+# Copyright (C) 2026 fm1-aether contributors
+"""Load a sample into AETHER on an FM-1 over USB-MIDI (SysEx), for its USER source.
 
-  smuga_load.py SOUND.wav                  load it: mono, 22050 Hz, IMA ADPCM (4 bits a sample), up to 24 s;
+  aether_load.py SOUND.wav                  load it: mono, 22050 Hz, IMA ADPCM (4 bits a sample), up to 24 s;
                                            the band above 9.7 kHz rebuilt on the FM-1 (SBR) from a small envelope
-  smuga_load.py SOUND.wav --rate 11025     twice as long (48 s): kept to 4.9 kHz, the rest rebuilt by SBR
-  smuga_load.py SOUND.wav --pcm16          16-bit instead: no ADPCM hiss, a quarter of the length
-  smuga_load.py SOUND.wav --rate 44100     the full band kept, no SBR (12 s; 3.1 s with --pcm16)
-  smuga_load.py SOUND.wav --no-sbr         no envelope: the band above the kept rate's Nyquist stays empty
-  smuga_load.py SOUND.wav --start 1.5 --secs 4   a part of it
-  smuga_load.py SOUND.wav --image OUT.bin  no FM-1: the flash image instead (header sector + data), for the host
+  aether_load.py SOUND.wav --rate 11025     twice as long (48 s): kept to 4.9 kHz, the rest rebuilt by SBR
+  aether_load.py SOUND.wav --pcm16          16-bit instead: no ADPCM hiss, a quarter of the length
+  aether_load.py SOUND.wav --rate 44100     the full band kept, no SBR (12 s; 3.1 s with --pcm16)
+  aether_load.py SOUND.wav --no-sbr         no envelope: the band above the kept rate's Nyquist stays empty
+  aether_load.py SOUND.wav --start 1.5 --secs 4   a part of it
+  aether_load.py SOUND.wav --image OUT.bin  no FM-1: the flash image instead (header sector + data), for the host
                                            simulator's `data OUT.bin 0x97000` (tests)
-  smuga_load.py SOUND.wav --syx OUT.syx    no FM-1 either: the SysEx messages into a file, for any SysEx sender
+  aether_load.py SOUND.wav --syx OUT.syx    no FM-1 either: the SysEx messages into a file, for any SysEx sender
                                            (SysEx Librarian, MIDI-OX, amidi: with a pause of 20 ms or more between
                                            messages) or the host simulator's `sysex OUT.syx`
-  smuga_load.py --list                     the MIDI ports
+  aether_load.py --list                     the MIDI ports
 
 Needs numpy (resampling, the SBR envelope), and mido with python-rtmidi to talk to the FM-1
 (pip install numpy mido python-rtmidi). Reads WAV files (8, 16, 24 or
 32-bit PCM, any channels) with the standard library; other formats: convert first (e.g. ffmpeg -i in.mp3 out.wav).
 
-The protocol (app/app.c, "sample load"): F0 7D 53 4D cmd ... F7, each command answered F0 7D 53 4D 7F cmd status F7.
+The protocol (app/app.c, "sample load"): F0 7D 41 45 cmd ... F7, each command answered F0 7D 41 45 7F cmd status F7.
 BEGIN (01) len rate format bytes env_frames env_hop name, DATA (02) offset + 7-in-8 packed bytes (the samples, then
 the SBR envelope), END (03) CRC-32."""
 import argparse
@@ -33,8 +33,8 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app" / "tools"))
-import smg_adpcm  # noqa: E402
-import smg_sbr  # noqa: E402
+import aet_adpcm  # noqa: E402
+import aet_sbr  # noqa: E402
 
 HDR_SECTOR = 0x1000
 MAX_BYTES = 0xDC000 - 0x98000          # app.h SMP_MAX_BYTES
@@ -75,16 +75,16 @@ def prepare(a):
     peak = float(np.max(np.abs(x))) if len(x) else 0.0
     x = x * (0.95 / peak if a.normalize and peak > 0 else 1.0)
     room = MAX_BYTES - 8192                       # (8 KB kept for the envelope: 48 s at 11025 Hz take 7.7 KB)
-    keep = smg_sbr.resample(x, rate, a.rate)
-    keep = keep[:room // 2 if a.pcm16 else room // smg_adpcm.BYTES * smg_adpcm.BLOCK]
+    keep = aet_sbr.resample(x, rate, a.rate)
+    keep = keep[:room // 2 if a.pcm16 else room // aet_adpcm.BYTES * aet_adpcm.BLOCK]
     pcm = [int(v) for v in np.clip(np.round(keep * 32767), -32768, 32767)]
-    data = struct.pack(f"<{len(pcm)}h", *pcm) if a.pcm16 else smg_adpcm.encode(pcm)
-    hop = smg_sbr.env_hop(a.rate)
-    env = b"" if a.no_sbr else smg_sbr.envelope(x[:int(len(pcm) * rate / a.rate) + 1], rate, a.rate, hop)
+    data = struct.pack(f"<{len(pcm)}h", *pcm) if a.pcm16 else aet_adpcm.encode(pcm)
+    hop = aet_sbr.env_hop(a.rate)
+    env = b"" if a.no_sbr else aet_sbr.envelope(x[:int(len(pcm) * rate / a.rate) + 1], rate, a.rate, hop)
     print(f"{a.wav}: {len(pcm)} samples at {a.rate} Hz ({len(pcm) / a.rate:.2f} s), peak "
           f"{20 * np.log10(peak or 1e-9):.1f} dBFS, {'PCM16' if a.pcm16 else 'ADPCM'} {len(data)} B"
           f"{f', SBR envelope {len(env)} B' if env else ''}")
-    return len(pcm), data + env, len(env) // smg_sbr.BANDS, hop if env else 0
+    return len(pcm), data + env, len(env) // aet_sbr.BANDS, hop if env else 0
 
 
 def name_of(a):
@@ -106,12 +106,12 @@ def pack78(b):
 
 
 def fmt_of(a):
-    return 0 if a.pcm16 else 1         # SMG_FMT_PCM16, SMG_FMT_ADPCM
+    return 0 if a.pcm16 else 1         # AET_FMT_PCM16, AET_FMT_ADPCM
 
 
 def image(a, smp):
     n, data, frames, hop = smp
-    hdr = struct.pack("<IIIIIIII16s", 0x33534D53, a.rate, n, zlib.crc32(data), fmt_of(a), len(data), frames, hop,
+    hdr = struct.pack("<IIIIIIII16s", 0x31534541, a.rate, n, zlib.crc32(data), fmt_of(a), len(data), frames, hop,
                       name_of(a))
     with open(a.image, "wb") as f:
         f.write(hdr + b"\xff" * (HDR_SECTOR - len(hdr)) + data)
@@ -131,15 +131,15 @@ class Link:
         time.sleep(0.3)
 
     def cmd(self, cmd, body, timeout=5.0):
-        self.out.send(self.mido.Message("sysex", data=bytes([0x7D, 0x53, 0x4D, cmd]) + body))
+        self.out.send(self.mido.Message("sysex", data=bytes([0x7D, 0x41, 0x45, cmd]) + body))
         t0 = time.time()
         while time.time() - t0 < timeout:
             for m in self.inp.iter_pending():
                 d = bytes(m.data) if m.type == "sysex" else b""
-                if d[:5] == bytes([0x7D, 0x53, 0x4D, 0x7F, cmd]):
+                if d[:5] == bytes([0x7D, 0x41, 0x45, 0x7F, cmd]):
                     return d[5]
             time.sleep(0.002)
-        raise SystemExit(f"no answer from the FM-1 (command {cmd}): is SMUGA running?")
+        raise SystemExit(f"no answer from the FM-1 (command {cmd}): is AETHER running?")
 
 
 def messages(a, smp):
@@ -154,7 +154,7 @@ def messages(a, smp):
 def syx(a, smp):
     with open(a.syx, "wb") as f:
         for cmd, body in messages(a, smp):
-            f.write(bytes([0xF0, 0x7D, 0x53, 0x4D, cmd]) + body + b"\xf7")
+            f.write(bytes([0xF0, 0x7D, 0x41, 0x45, cmd]) + body + b"\xf7")
     print(f"syx: {a.syx}")
 
 
@@ -184,7 +184,7 @@ def main():
     ap.add_argument("--no-normalize", dest="normalize", action="store_false")
     ap.add_argument("--pcm16", action="store_true", help="16-bit PCM instead of ADPCM")
     ap.add_argument("--no-sbr", action="store_true", help="no SBR envelope")
-    ap.add_argument("--port", default="SMUGA", help="part of the FM-1's MIDI port name")
+    ap.add_argument("--port", default="AETHER", help="part of the FM-1's MIDI port name")
     ap.add_argument("--image", help="write the flash image instead of loading")
     ap.add_argument("--syx", help="write the SysEx messages to a file instead of loading")
     ap.add_argument("--list", action="store_true")

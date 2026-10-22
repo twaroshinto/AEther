@@ -1,4 +1,4 @@
-# SMUGA
+# AEther
 
 Spektralny syntezator dla **M-VAVE FM-1**, działający na zasadzie [PaulStretcha](https://hypermammut.sourceforge.net/paulstretch/):
 długie okna, zachowane amplitudy widma, **losowe fazy** i nakładanie ramek. Z każdej nuty robi się gęsta,
@@ -76,18 +76,18 @@ klawisze, cyfry to czarne, `Z`/`X` zmieniają oktawę, `P` to HOLD, `O` to FREEZ
 cd app/build/emu && python3 -m http.server 8000   # http://localhost:8000
 ```
 
-CI buduje go przy każdym pushu (artefakt `smuga-emulator`).
+CI buduje go przy każdym pushu (artefakt `aether-emulator`).
 
 ## Własny sample
 
 ```sh
 pip install numpy mido python-rtmidi
-python3 tools/smuga_load.py moj_dzwiek.wav                 # mono, 22,05 kHz, ADPCM + SBR: do 24 s
-python3 tools/smuga_load.py moj_dzwiek.wav --rate 11025    # 4,9 kHz w pamięci, reszta z SBR: do 48 s
-python3 tools/smuga_load.py moj_dzwiek.wav --pcm16         # 16 bit bez szumu ADPCM: do 6,3 s
-python3 tools/smuga_load.py moj_dzwiek.wav --rate 44100    # pełne pasmo, bez SBR: do 12 s (3,1 s z --pcm16)
-python3 tools/smuga_load.py dlugi.wav --start 12 --secs 5  # fragment
-python3 tools/smuga_load.py moj_dzwiek.wav --syx out.syx   # plik .syx dla SysEx Librarian / MIDI-OX
+python3 tools/aether_load.py moj_dzwiek.wav                 # mono, 22,05 kHz, ADPCM + SBR: do 24 s
+python3 tools/aether_load.py moj_dzwiek.wav --rate 11025    # 4,9 kHz w pamięci, reszta z SBR: do 48 s
+python3 tools/aether_load.py moj_dzwiek.wav --pcm16         # 16 bit bez szumu ADPCM: do 6,3 s
+python3 tools/aether_load.py moj_dzwiek.wav --rate 44100    # pełne pasmo, bez SBR: do 12 s (3,1 s z --pcm16)
+python3 tools/aether_load.py dlugi.wav --start 12 --secs 5  # fragment
+python3 tools/aether_load.py moj_dzwiek.wav --syx out.syx   # plik .syx dla SysEx Librarian / MIDI-OX
 ```
 
 Sample trafia do flasha (przetrwa wyłączenie) i od razu staje się źródłem USER. ADPCM ma odstęp sygnału od szumu
@@ -98,10 +98,10 @@ psuje: nagłówek jest kasowany na początku i zapisywany dopiero po sprawdzeniu
 ## Budowanie
 
 ```sh
-git clone --recursive https://github.com/twaroshinto/fm1-smuga && cd fm1-smuga
+git clone --recursive https://github.com/twaroshinto/AEther && cd fm1-aether
 sh tests/run.sh          # testy silnika + cała aplikacja w symulatorze (cc, python3, Pillow, numpy)
-./build.sh --host        # sam symulator: app/build/host/smuga_host SKRYPT KATALOG
-./build.sh               # firmware: app/build/smuga.fwsc
+./build.sh --host        # sam symulator: app/build/host/aether_host SKRYPT KATALOG
+./build.sh               # firmware: app/build/aether.fwsc
 ```
 
 Firmware wymaga toolchaina JieLi (Linux x86-64) i trzech plików z SDK AC79:
@@ -112,13 +112,13 @@ sh base/bsp/tools/get_sdk.sh ~/.jieli/ac79-sdk
 JIELI_TOOLCHAIN=~/.jieli/toolchain AC79_SDK=~/.jieli/ac79-sdk ./build.sh
 ```
 
-Najprościej: **GitHub Actions** (`.github/workflows/build.yml`) robi to samo i wystawia `smuga.fwsc` jako artefakt
+Najprościej: **GitHub Actions** (`.github/workflows/build.yml`) robi to samo i wystawia `aether.fwsc` jako artefakt
 każdego pusha; tag `vX.Y` tworzy release.
 
 ## Instalacja i powrót
 
 ```sh
-python3 base/tools/fm1_install.py app/build/smuga.fwsc     # przez USB-MIDI (mido + python-rtmidi)
+python3 base/tools/fm1_install.py app/build/aether.fwsc     # przez USB-MIDI (mido + python-rtmidi)
 ```
 
 Powrót do oficjalnego firmware: updater M-VAVE (albo „Return to official” w instalatorze Felucci). Jeśli coś
@@ -129,16 +129,16 @@ pójdzie źle, przytrzymanie **OCT− i OCT+ przez 5 s** wchodzi w tryb aktualiz
 
 | Ścieżka | Co |
 |---|---|
-| `app/dsp/smuga.c`, `smuga.h` | silnik: przenośne C99, float, bez alokacji i bez libc; dekoder ADPCM |
+| `app/dsp/aether.c`, `aether.h` | silnik: przenośne C99, float, bez alokacji i bez libc; dekoder ADPCM |
 | `app/dsp/va.c`, `va.h` | źródło VA: oscylator polyBLEP, filtr SVF, MOTION |
 | `app/app.c`, `app/app.h` | aplikacja FM-1: panel, ekran, MIDI, presety, wgrywanie sampli (SysEx) |
 | `app/fm1.toml` | ustawienia builda fm1-base |
 | `app/tools/gen_source.py` | generator wbudowanych sampli (przy budowaniu, bez nagrań i licencji) |
-| `app/tools/smg_adpcm.py` | koder IMA ADPCM w formacie silnika (generator i `smuga_load.py`) |
-| `app/tools/smg_sbr.py` | resampling i obwiednia SBR (numpy) |
+| `app/tools/aet_adpcm.py` | koder IMA ADPCM w formacie silnika (generator i `aether_load.py`) |
+| `app/tools/aet_sbr.py` | resampling i obwiednia SBR (numpy) |
 | `app/tests/*.txt` | scenariusze symulatora: klawisze, strony, HOLD, FREEZE, MIDI, zapis, wgrywanie sampla |
 | `tests/dsp_test.c` | testy silnika: wysokość dźwięku, poziomy, cisza po release, brak spóźnionych ramek, budżet pracy |
-| `tools/smuga_load.py` | wgrywanie WAV-ów po USB-MIDI |
+| `tools/aether_load.py` | wgrywanie WAV-ów po USB-MIDI |
 | `base/` | fm1-base (submoduł) |
 
 ## Licencja i podziękowania

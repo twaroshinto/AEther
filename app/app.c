@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-smuga contributors */
-/* SMUGA on the FM-1: the panel, the screen, MIDI and the sample loader around the engine (dsp/smuga.c).
+ * Copyright (C) 2026 fm1-aether contributors */
+/* AETHER on the FM-1: the panel, the screen, MIDI and the sample loader around the engine (dsp/aether.c).
  * Part of fm1-base's unity build (base/device/unity.c, base/host/plat_host.c), after the platform: gfx.c, announce.c
  * and lib/touch.c are in scope. Structure from fm1-base's template.
  *
@@ -19,9 +19,9 @@
  * MIDI in (USB, TRS): notes on any channel, CC64 sustain, CC1 POSITION, CC71 SPREAD, CC74 TILT. Notes from the keys
  * go out over USB. */
 #include "fastmath.h"
-#include "smuga.h"
+#include "aether.h"
 #include "va.h"
-#include "smuga_source.h"                /* the built-in samples (tools/gen_source.py, at build time) */
+#include "aether_source.h"                /* the built-in samples (tools/gen_source.py, at build time) */
 
 /* ------------------------------------------------------------- parameters --- */
 #define NLFO 3u                          /* LFO 1-3 */
@@ -32,7 +32,7 @@ enum { P_STRETCH, P_POSITION, P_SPREAD, P_SIZE, P_BRIGHT, P_BAND, P_INHARM, P_OD
        /* HARM */
        P_H_COUNT, P_H_SLOPE, P_H_ODD, P_H_BAND, P_H_FOCUS, P_H_BOOST, P_H_WIDTH, P_H_VEL,
        P_HENV0,                          /* ENV A-D: TARGET, ATTACK, DECAY, SUSTAIN each */
-       P_LFO0 = P_HENV0 + 4 * SMG_HENV,  /* LFO 1-3: RATE, SHAPE, FADE, SYNC each */
+       P_LFO0 = P_HENV0 + 4 * AET_HENV,  /* LFO 1-3: RATE, SHAPE, FADE, SYNC each */
        P_MENV0 = P_LFO0 + 4 * NLFO,      /* MOD ENV 1-2: ATTACK, DECAY, SUSTAIN, RELEASE each */
        P_MX0 = P_MENV0 + 4 * NMENV,      /* the matrix: SOURCE, DEST, AMOUNT a slot */
        P_MSLOT = P_MX0 + 3 * NMX,        /* the slot the MATRIX page shows */
@@ -66,17 +66,17 @@ typedef struct {
     const char *name;
     uint8_t max;                         /* the values are 0 .. max (127 mostly) */
 } pdef_t;
-#define HENV_DEF {"TARGET", SMG_NHT - 1u}, {"ATTACK", 127}, {"DECAY", 127}, {"SUSTAIN", 127}
+#define HENV_DEF {"TARGET", AET_NHT - 1u}, {"ATTACK", 127}, {"DECAY", 127}, {"SUSTAIN", 127}
 #define LFO_DEF {"RATE", 127}, {"SHAPE", NLFO_SHAPE - 1u}, {"FADE", 127}, {"SYNC", 1}
 #define MENV_DEF {"ATTACK", 127}, {"DECAY", 127}, {"SUSTAIN", 127}, {"RELEASE", 127}
 #define MX_DEF {"SOURCE", NMS - 1u}, {"DEST", NDEST - 1u}, {"AMOUNT", 127}
 static const pdef_t PDEF[NP] = {
-    {"STRETCH", 127}, {"POSITION", 127}, {"SPREAD", 127}, {"SIZE", SMG_NSIZE - 1u},
+    {"STRETCH", 127}, {"POSITION", 127}, {"SPREAD", 127}, {"SIZE", AET_NSIZE - 1u},
     {"BRIGHT", 127}, {"BAND", 127}, {"INHARM", 127}, {"ODD", 127},
     {"ATTACK", 127}, {"RELEASE", 127}, {"WIDTH", 127}, {"LEVEL", 127},
     {"TILT", 127}, {"SUB", 127}, {"SHIMMER", 127},
     {"SHAPE", 127}, {"CUTOFF", 127}, {"RESO", 127}, {"MOTION", 127},
-    {"HARMONICS", SMG_HARM_MAX - 1u}, {"SLOPE", 127}, {"EVEN/ODD", 127}, {"H BAND", 127},
+    {"HARMONICS", AET_HARM_MAX - 1u}, {"SLOPE", 127}, {"EVEN/ODD", 127}, {"H BAND", 127},
     {"FOCUS", 31}, {"BOOST", 127}, {"FOCUS W", 127}, {"VEL>TONE", 127},
     HENV_DEF, HENV_DEF, HENV_DEF, HENV_DEF,
     LFO_DEF, LFO_DEF, LFO_DEF,
@@ -96,17 +96,17 @@ static const uint8_t PDEFAULT[NP] = {
     0, 0,
 };
 
-/* the sources: PAD, VA, HARM, the built-in samples (smg_builtin[], SLOT_SMP0 on), USER */
+/* the sources: PAD, VA, HARM, the built-in samples (aet_builtin[], SLOT_SMP0 on), USER */
 enum { SLOT_PAD, SLOT_VA, SLOT_HARM, SLOT_SMP0, SLOT_CHOIR = SLOT_SMP0, SLOT_GLASS, SLOT_STRING, SLOT_WIND, SLOT_PIANO,
        SLOT_BOWED, SLOT_FLUTE, SLOT_ORGAN, SLOT_KALIMBA, SLOT_BRASS, SLOT_DRONE, SLOT_RAIN, SLOT_BIRDS,
        SLOT_WHISPER, SLOT_GAMELAN, SLOT_TAPE };   /* in gen_source.py's order */
-#define SLOT_USER (SLOT_SMP0 + SMG_NBUILTIN)
+#define SLOT_USER (SLOT_SMP0 + AET_NBUILTIN)
 #define NSLOT (SLOT_USER + 1u)
 static int slot_sample(uint32_t s) { return s >= SLOT_SMP0; }   /* a sample, built-in or loaded */
 static const char *slot_name(uint32_t s)
 {
     return s == SLOT_PAD ? "PAD" : s == SLOT_VA ? "VA" : s == SLOT_HARM ? "HARM" :
-           s < SLOT_USER ? smg_builtin[s - SLOT_SMP0].name : "USER";
+           s < SLOT_USER ? aet_builtin[s - SLOT_SMP0].name : "USER";
 }
 enum { PG_SOURCE, PG_TONE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, PG_SPACE, PG_LFO1, PG_LFO2, PG_LFO3, PG_MENV1,
        PG_MENV2, PG_MATRIX, PG_COLOR, PG_SETUP, NPAGE };
@@ -136,13 +136,13 @@ static const preset_t PRESETS[] = {
     {"BELL CLOUD", SLOT_PAD, {O(P_BRIGHT, 90), O(P_BAND, 30), O(P_INHARM, 90), O(P_ATTACK, 60), O(P_RELEASE, 96), O(P_LEVEL, 90), O(P_TILT, 70), O(P_SHIMMER, 20)}},
     {"ANALOG MIST", SLOT_VA, {O(P_SUB, 30), O(P_CUTOFF, 72), O(P_MOTION, 45)}},
     {"RESO SWEEP", SLOT_VA, {O(P_SIZE, 2), O(P_ATTACK, 60), O(P_RELEASE, 85), O(P_WIDTH, 100), O(P_LEVEL, 90), O(P_SHAPE, 64), O(P_CUTOFF, 60), O(P_RESO, 90), O(P_MOTION, 90)}},
-    {"HARM BLOOM", SLOT_HARM, {O(P_H_COUNT, 31), O(P_H_SLOPE, 30), O(P_HENV(0, 0), SMG_HT_HIGH), O(P_HENV(0, 1), 105),
+    {"HARM BLOOM", SLOT_HARM, {O(P_H_COUNT, 31), O(P_H_SLOPE, 30), O(P_HENV(0, 0), AET_HT_HIGH), O(P_HENV(0, 1), 105),
                                O(P_HENV(0, 3), 127), O(P_HENV(1, 0), 1), O(P_HENV(1, 1), 20), O(P_HENV(1, 2), 95),
                                O(P_HENV(1, 3), 70), O(P_ATTACK, 70),
                                O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_TILT), O(P_MX(0, 2), 100),
                                O(P_MX(1, 0), MS_ENV2), O(P_MX(1, 1), D_SLOPE), O(P_MX(1, 2), 20)}},
     {"HARM BELL", SLOT_HARM, {O(P_H_COUNT, 23), O(P_H_SLOPE, 25), O(P_H_FOCUS, 4), O(P_H_BOOST, 100), O(P_H_WIDTH, 15),
-                              O(P_HENV(0, 0), SMG_HT_HIGH), O(P_HENV(0, 1), 5), O(P_HENV(0, 2), 70), O(P_HENV(0, 3), 0),
+                              O(P_HENV(0, 0), AET_HT_HIGH), O(P_HENV(0, 1), 5), O(P_HENV(0, 2), 70), O(P_HENV(0, 3), 0),
                               O(P_HENV(1, 0), 3), O(P_HENV(1, 1), 5), O(P_HENV(1, 2), 90), O(P_HENV(1, 3), 20),
                               O(P_ATTACK, 10), O(P_RELEASE, 100)}},
     {"HARM VOWELS", SLOT_HARM, {O(P_H_COUNT, 40), O(P_H_SLOPE, 35), O(P_H_FOCUS, 6), O(P_H_BOOST, 110),
@@ -151,7 +151,7 @@ static const preset_t PRESETS[] = {
                                 O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_BOOST), O(P_MX(1, 2), 84),
                                 O(P_MX(2, 0), MS_LFO3), O(P_MX(2, 1), D_RATE1), O(P_MX(2, 2), 90)}},
     {"HARM HOLLOW", SLOT_HARM, {O(P_H_COUNT, 31), O(P_H_SLOPE, 45), O(P_H_ODD, 127), O(P_H_BAND, 50),
-                                O(P_HENV(0, 0), SMG_HT_HIGH), O(P_HENV(0, 1), 110), O(P_HENV(0, 3), 100), O(P_SUB, 40)}},
+                                O(P_HENV(0, 0), AET_HT_HIGH), O(P_HENV(0, 1), 110), O(P_HENV(0, 3), 100), O(P_SUB, 40)}},
     {"DRIFT FOG", SLOT_CHOIR, {O(P_STRETCH, 80), O(P_SPREAD, 40), O(P_LFO(0, 0), 10), O(P_LFO(0, 1), LFO_DRIFT),
                                O(P_LFO(1, 0), 30), O(P_LFO(1, 1), LFO_SINE),
                                O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_POSITION), O(P_MX(0, 2), 100),
@@ -205,8 +205,8 @@ static uint8_t set_dirty;
 static void ui_dirty_params(void);
 
 /* ------------------------------------------------------------------ engine --- */
-static smg_t eng;
-static float eng_ram[SMG_RAM_FLOATS] PLAT_POOL;
+static aet_t eng;
+static float eng_ram[AET_RAM_FLOATS] PLAT_POOL;
 static va_t va;                          /* the VA source: rendered into the engine's LIVE ring */
 static volatile uint8_t va_on;
 static uint8_t freeze, hold;
@@ -273,7 +273,7 @@ static float lfo_wave(uint32_t shape, float ph, uint32_t k)
 static int any_gate(void)                /* a note held (keys, HOLD, MIDI): the envelopes' gate */
 {
     uint32_t v;
-    for (v = 0; v < SMG_VOICES; v++)
+    for (v = 0; v < AET_VOICES; v++)
         if (eng.voice[v].note >= 0 && eng.voice[v].gate)
             return 1;
     return 0;
@@ -370,11 +370,11 @@ void app_overload(void)
 /* the played values into the engine's parameters: the audio interrupt only (the engine's own context), once a block */
 static void map_params(void)
 {
-    smg_params_t *p = &eng.p;
+    aet_params_t *p = &eng.p;
     const float *v = mod_v;
     uint32_t k;
-    p->source = set.slot == SLOT_PAD ? SMG_SRC_PAD : set.slot == SLOT_VA ? SMG_SRC_LIVE :
-                set.slot == SLOT_HARM ? SMG_SRC_HARM : SMG_SRC_SAMPLE;
+    p->source = set.slot == SLOT_PAD ? AET_SRC_PAD : set.slot == SLOT_VA ? AET_SRC_LIVE :
+                set.slot == SLOT_HARM ? AET_SRC_HARM : AET_SRC_SAMPLE;
     va_on = set.slot == SLOT_VA;
     va.shape = unit(v[P_SHAPE]);
     va.cutoff = unit(v[P_CUTOFF]);
@@ -409,7 +409,7 @@ static void map_params(void)
     p->h_boost = 24.0f * bipolar(v[P_H_BOOST]);
     p->h_width = 0.4f + 5.6f * unit(v[P_H_WIDTH]);
     p->h_vel = unit(v[P_H_VEL]);
-    for (k = 0; k < SMG_HENV; k++) {
+    for (k = 0; k < AET_HENV; k++) {
         p->h_target[k] = set.v[P_HENV(k, 0)];
         p->h_att[k] = attack_of(v[P_HENV(k, 1)]);
         p->h_dec[k] = release_of(v[P_HENV(k, 2)]);
@@ -426,12 +426,12 @@ static void apply(void)
 
 static uint32_t audio_bytes(uint32_t len, uint32_t fmt)
 {
-    return fmt == SMG_FMT_ADPCM ? SMG_ADPCM_SIZE(len) : fmt == SMG_FMT_PCM16 ? 2u * len : 0u;
+    return fmt == AET_FMT_ADPCM ? AET_ADPCM_SIZE(len) : fmt == AET_FMT_PCM16 ? 2u * len : 0u;
 }
 static int sample_size_ok(uint32_t len, uint32_t rate, uint32_t fmt, uint32_t bytes, uint32_t frames, uint32_t hop)
 {
     return len && len <= SMP_MAX_BYTES * 2u && rate >= 4000u && rate <= 96000u && bytes <= SMP_MAX_BYTES &&
-           audio_bytes(len, fmt) && bytes == audio_bytes(len, fmt) + frames * SMG_SBR_BANDS && (!frames || hop);
+           audio_bytes(len, fmt) && bytes == audio_bytes(len, fmt) + frames * AET_SBR_BANDS && (!frames || hop);
 }
 
 /* the loaded sample in the flash, checked: its header, 0 = none */
@@ -461,13 +461,13 @@ static uint8_t uploading;                /* a sample is being written: USER play
 static void source_set(uint32_t slot)    /* audio interrupt: a sample source's sample (PAD and VA keep the last) */
 {
     const smp_hdr_t *h = slot == SLOT_USER && !uploading ? user_sample() : 0;
-    const smg_builtin_t *b = &smg_builtin[slot >= SLOT_SMP0 && slot < SLOT_USER ? slot - SLOT_SMP0 : 0u];
+    const aet_builtin_t *b = &aet_builtin[slot >= SLOT_SMP0 && slot < SLOT_USER ? slot - SLOT_SMP0 : 0u];
     if (h) {
-        smg_set_sample(&eng, plat_data(SMP_DATA_OFF), h->len, h->rate, h->fmt);
-        smg_set_env(&eng, plat_data(SMP_DATA_OFF) + audio_bytes(h->len, h->fmt), h->env_frames, h->env_hop);
+        aet_set_sample(&eng, plat_data(SMP_DATA_OFF), h->len, h->rate, h->fmt);
+        aet_set_env(&eng, plat_data(SMP_DATA_OFF) + audio_bytes(h->len, h->fmt), h->env_frames, h->env_hop);
     } else if (slot_sample(slot) || !eng.smp.len) {
-        smg_set_sample(&eng, b->data, b->len, b->rate, SMG_FMT_ADPCM);
-        smg_set_env(&eng, b->env, b->env_frames, b->env_hop);
+        aet_set_sample(&eng, b->data, b->len, b->rate, AET_FMT_ADPCM);
+        aet_set_env(&eng, b->env, b->env_frames, b->env_hop);
     }
 }
 
@@ -482,7 +482,7 @@ static void midi_in(void)                /* audio interrupt */
     while (plat_midi_in(&pkt, &port)) {
         uint32_t st = (pkt >> 8) & 0xFFu, d1 = (pkt >> 16) & 0x7Fu, d2 = pkt >> 24 & 0x7Fu;
         if ((st & 0xF0u) == 0x90u && d2) {
-            smg_note_on(&eng, (int32_t)d1, (float)d2 / 127.0f);
+            aet_note_on(&eng, (int32_t)d1, (float)d2 / 127.0f);
             note_heard(d1, d2);
             sus_notes[d1 >> 5] &= ~(1u << (d1 & 31u));
             midi_notes_in++;
@@ -490,7 +490,7 @@ static void midi_in(void)                /* audio interrupt */
             if (sus_on)
                 sus_notes[d1 >> 5] |= 1u << (d1 & 31u);
             else
-                smg_note_off(&eng, (int32_t)d1);
+                aet_note_off(&eng, (int32_t)d1);
         } else if ((st & 0xF0u) == 0xB0u) {
             if (d1 == 64u) {
                 sus_on = d2 >= 64u;
@@ -498,7 +498,7 @@ static void midi_in(void)                /* audio interrupt */
                     uint32_t k;
                     for (k = 0; k < 128u; k++)
                         if (sus_notes[k >> 5] >> (k & 31u) & 1u)
-                            smg_note_off(&eng, (int32_t)k);
+                            aet_note_off(&eng, (int32_t)k);
                     sus_notes[0] = sus_notes[1] = sus_notes[2] = sus_notes[3] = 0;
                 }
             } else if (d1 == 1u) {           /* the mod wheel: the matrix's WHEEL */
@@ -508,7 +508,7 @@ static void midi_in(void)                /* audio interrupt */
             } else if (d1 == 74u) {
                 cc_in[2] = (int16_t)d2;
             } else if (d1 == 120u || d1 == 123u) {   /* all sound off, all notes off */
-                smg_all_off(&eng);
+                aet_all_off(&eng);
             }
         } else if ((st & 0xF0u) == 0xD0u) {  /* channel pressure: the matrix's PRESSURE */
             midi_press = (float)d1 / 127.0f;
@@ -528,10 +528,10 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     while (r != ev_w) {
         uint32_t e = evq[r & 63u], a = e >> 8 & 0xFFFFu, b = e & 0xFFu;
         switch (e >> 24) {
-        case Q_ON: smg_note_on(&eng, (int32_t)a, (float)b / 127.0f); break;
-        case Q_OFF: smg_note_off(&eng, (int32_t)a); break;
-        case Q_ALLOFF: smg_all_off(&eng); break;
-        case Q_PANIC: smg_panic(&eng); break;
+        case Q_ON: aet_note_on(&eng, (int32_t)a, (float)b / 127.0f); break;
+        case Q_OFF: aet_note_off(&eng, (int32_t)a); break;
+        case Q_ALLOFF: aet_all_off(&eng); break;
+        case Q_PANIC: aet_panic(&eng); break;
         case Q_SOURCE: source_set(a); break;
         default: break;
         }
@@ -545,10 +545,10 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         map_params();
         if (va_on) {                     /* VA: its newest block into the LIVE ring first */
             va_render(&va, buf_l, m);
-            smg_live_push(&eng, buf_l, m);
+            aet_live_push(&eng, buf_l, m);
             eng.p.lp_hz = va.fc_now;
         }
-        smg_render(&eng, buf_l, buf_r, m);
+        aet_render(&eng, buf_l, buf_r, m);
         for (i = 0; i < m; i++) {
             gain_now += (gain - gain_now) * 0.004f;          /* turning MASTER does not click */
             lr[2u * i] = (int32_t)(buf_l[i] * gain_now);
@@ -561,7 +561,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 
 void app_panic(void)
 {
-    smg_panic(&eng);
+    aet_panic(&eng);
 }
 
 /* --------------------------------------------------------------- settings --- */
@@ -620,11 +620,11 @@ void app_init(void)
     }
     if (set.slot == SLOT_USER && !user_sample())
         set.slot = SLOT_CHOIR;
-    smg_init(&eng, eng_ram);
+    aet_init(&eng, eng_ram);
     core2_wanted_at_boot = set.v[P_CORE2];
 #ifndef PLAT_HOST
     if (set.v[P_CORE2] && core1_start() == 0)   /* (before the audio: core 1 starts at power-on only) */
-        smg_set_par(&eng, core1_run, core1_wait);
+        aet_set_par(&eng, core1_run, core1_wait);
 #endif
     va_init(&va);
     mod_step(0.0f);
@@ -633,16 +633,16 @@ void app_init(void)
 }
 
 /* ------------------------------------------------------------- sample load --- */
-/* SysEx F0 7D 53 4D cmd ... F7 (tools/smuga_load.py); every command answered F0 7D 53 4D 7F cmd status F7.
- *   01 BEGIN  len (samples, 4 x 7 bits), rate (3 x 7 bits), format (SMG_FMT_*: 0 PCM16, 1 ADPCM), bytes (4 x 7
- *             bits: the samples' 2 len or SMG_ADPCM_SIZE(len), plus the envelope's), the SBR envelope's frames (3 x 7
+/* SysEx F0 7D 41 45 cmd ... F7 (tools/aether_load.py); every command answered F0 7D 41 45 7F cmd status F7.
+ *   01 BEGIN  len (samples, 4 x 7 bits), rate (3 x 7 bits), format (AET_FMT_*: 0 PCM16, 1 ADPCM), bytes (4 x 7
+ *             bits: the samples' 2 len or AET_ADPCM_SIZE(len), plus the envelope's), the SBR envelope's frames (3 x 7
  *             bits) and hop (2 x 7 bits; 0 0: none), name (up to 15 ASCII)
  *   02 DATA   byte offset (4 x 7 bits), then the bytes packed 7 in 8 (the first of each 8 holds the next seven's top
  *             bits); in order, at most 512 bytes a message
  *   03 END    CRC-32 of the bytes (5 x 7 bits): checked against the flash, then the header written
  * Status: 0 ok, 1 not now, 2 too long, 3 out of order, 4 the flash refused, 5 CRC mismatch */
 static struct {
-    uint32_t len, rate, fmt, bytes, next;   /* samples; Hz; SMG_FMT_*; the data's size; the next byte expected */
+    uint32_t len, rate, fmt, bytes, next;   /* samples; Hz; AET_FMT_*; the data's size; the next byte expected */
     uint32_t env_frames, env_hop;
     char name[16];
     uint8_t buf[512];
@@ -672,7 +672,7 @@ static uint32_t up_errors;              /* answers other than ok (the host simul
 static void up_answer(uint32_t cmd, uint32_t status)
 {
     up_errors += status != 0;
-    uint8_t f[8] = {0xF0, 0x7D, 0x53, 0x4D, 0x7F, (uint8_t)cmd, (uint8_t)status, 0xF7};
+    uint8_t f[8] = {0xF0, 0x7D, 0x41, 0x45, 0x7F, (uint8_t)cmd, (uint8_t)status, 0xF7};
     plat_sysex_send(f, sizeof f);
 }
 
@@ -765,7 +765,7 @@ static uint32_t up_end(const uint8_t *p, uint32_t n)
 int app_sysex(const uint8_t *p, uint32_t n)
 {
     uint32_t st;
-    if (n < 4u || p[0] != 0x7Du || p[1] != 0x53u || p[2] != 0x4Du)
+    if (n < 4u || p[0] != 0x7Du || p[1] != 0x41u || p[2] != 0x45u)
         return 0;
     switch (p[3]) {
     case 1: st = up_begin(p, n); break;
@@ -835,13 +835,13 @@ static void harm_target_text(uint32_t t, char *b)
 {
     static const char *const G[] = {"ODD", "EVEN", "LOW 1-4", "MID 5-12", "HIGH 13+", "ALL"};
     b[0] = 0;
-    if (t == SMG_HT_OFF)
+    if (t == AET_HT_OFF)
         text_cat(b, "OFF");
-    else if (t <= SMG_HT_H32) {
+    else if (t <= AET_HT_H32) {
         text_cat(b, "H");
         int_text((int32_t)t, b + 1);
     } else
-        text_cat(b, G[(t - SMG_HT_ODD) % 6u]);
+        text_cat(b, G[(t - AET_HT_ODD) % 6u]);
 }
 
 /* a parameter's value as the screen shows it */
@@ -863,7 +863,7 @@ static void value_text(uint32_t p, char *b)
         }
         break;
     case P_SIZE: {
-        static const char *const MS[SMG_NSIZE] = {"23 MS", "46 MS", "93 MS", "186 MS"};
+        static const char *const MS[AET_NSIZE] = {"23 MS", "46 MS", "93 MS", "186 MS"};
         text_cat(b, MS[v]);
         break;
     }
@@ -1377,20 +1377,20 @@ static void draw_header(void)
  * moves marked (this page's in white), and on ENV A-D that envelope's shape */
 static void draw_harmonics(void)
 {
-    const smg_params_t *p = &eng.p;
+    const aet_params_t *p = &eng.p;
     uint32_t h, k, env = ui.page >= PG_ENVA && ui.page <= PG_ENVD ? (uint32_t)(ui.page - PG_ENVA) : 99u;
     float top = 0.0f, lv[33];
     cv_begin(240, SPEC_H, C_BLACK);
     for (h = 1; h <= 32u; h++) {
-        lv[h] = h <= p->h_count ? smg_harm_level(p, h, 1.0f) : 0.0f;
+        lv[h] = h <= p->h_count ? aet_harm_level(p, h, 1.0f) : 0.0f;
         top = fm_maxf(top, lv[h]);
     }
     for (h = 1; h <= 32u; h++) {
         int32_t x = (int32_t)(h - 1u) * 15 / 2 + 1, ht;
         uint16_t c = C_HI;
         float db = lv[h] > 0.0f ? 6.0206f * fm_log2f(lv[h] / top) : -99.0f;
-        for (k = 0; k < SMG_HENV; k++)
-            if (smg_harm_takes(p->h_target[k], h))
+        for (k = 0; k < AET_HENV; k++)
+            if (aet_harm_takes(p->h_target[k], h))
                 c = k == env ? C_WHITE : (env == 99u ? C_WHITE : C_AMB);
         ht = clamp((int32_t)((db + 48.0f) * (float)(SPEC_H - 14) / 48.0f), 0, SPEC_H - 14);
         if (ht > 0)
@@ -1401,12 +1401,12 @@ static void draw_harmonics(void)
             cv_text(h == 32u ? 226 : x, SPEC_H - 9, &FONT_XS, t, C_DIM);
         }
     }
-    if (env < SMG_HENV && p->h_target[env]) {   /* the envelope: 0 .. its attack + decay + 1 s, top right */
+    if (env < AET_HENV && p->h_target[env]) {   /* the envelope: 0 .. its attack + decay + 1 s, top right */
         float span = p->h_att[env] + p->h_dec[env] + 1.0f;
         int32_t x0 = 120, w = 116, y0 = 2, hh = 34, i, py = y0 + hh;
         cv_rect(x0, y0 + hh, w, 1, C_LINE);
         for (i = 0; i <= w; i++) {
-            int32_t y = y0 + hh - (int32_t)(smg_harm_env(p, env, span * (float)i / (float)w) * (float)hh);
+            int32_t y = y0 + hh - (int32_t)(aet_harm_env(p, env, span * (float)i / (float)w) * (float)hh);
             if (i)
                 cv_line(x0 + i - 1, py, x0 + i, y, C_WHITE);
             py = y;
@@ -1567,8 +1567,8 @@ static void draw_spectrum(void)
     }
     cv_begin(240, SPEC_H, C_BLACK);
     for (b = 0; b < 8u; b++)             /* octaves: 80, 160 .. 10240 Hz */
-        cv_rect((int32_t)((float)(b + 1u) * ((float)SMG_DISP / 8.643856f) * 4.0f), 6, 1, SPEC_H - 6, C_LINE);
-    for (b = 0; b < SMG_DISP; b++) {
+        cv_rect((int32_t)((float)(b + 1u) * ((float)AET_DISP / 8.643856f) * 4.0f), 6, 1, SPEC_H - 6, C_LINE);
+    for (b = 0; b < AET_DISP; b++) {
         float m = eng.disp[b], db = m > 1e-7f ? 6.0206f * fm_log2f(m) : -140.0f;
         int32_t h = (int32_t)((db + 72.0f) * ((float)(SPEC_H - 8) / 66.0f));
         h = clamp(h, 0, SPEC_H - 8);
@@ -1623,7 +1623,7 @@ static void draw_params(void)
         t[2] = 0;
         text_cat(f, t);
         text_cat(f, "   VOICES ");
-        int_text(smg_active(&eng), t);
+        int_text(aet_active(&eng), t);
         text_cat(f, t);
         text_cat(f, "   CPU ");
         int_text((int32_t)plat_cpu_pct(), t);
@@ -1702,7 +1702,7 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "freeze"))
         *got = freeze;
     else if (!strcmp(what, "voices"))
-        *got = smg_active(&eng);
+        *got = aet_active(&eng);
     else if (!strcmp(what, "late"))
         *got = (int)eng.late;
     else if (!strcmp(what, "dirty"))

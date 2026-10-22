@@ -29,7 +29,7 @@ bufor float, a potrzeba kilku buforów. Przy 336 KB puli (bez zewnętrznego RAM-
 
 ## Warianty
 
-### A. Spektralny resyntezator z losowymi fazami — **zrobione (SMUGA v0.1)**
+### A. Spektralny resyntezator z losowymi fazami — **zrobione (AEther v0.1)**
 
 Jeden silnik, dwa źródła widma:
 
@@ -100,7 +100,7 @@ rozmiaru FFT, więc obwiednię liczoną w Pythonie na oknie 2048 da się użyć 
 ### B. Rozciąganie dźwięku z komputera na żywo (USB Audio) — następny krok
 
 FM-1 nie ma wejścia audio, ale fm1-base obsługuje **USB Audio OUT** (komputer gra przez FM-1). Dziś ten strumień
-jest miksowany po aplikacji i aplikacja go nie widzi. Gdyby `usb.c` oddawał próbki aplikacji, SMUGA mogłaby
+jest miksowany po aplikacji i aplikacja go nie widzi. Gdyby `usb.c` oddawał próbki aplikacji, AEther mogłaby
 zbierać je w pierścień (wystarczy jedno okno: 8192 × 2 B = 16 KB) i rozciągać na żywo — „PaulStretch jako efekt”.
 Wymaga zmiany w fm1-base (warto zaproponować upstream).
 

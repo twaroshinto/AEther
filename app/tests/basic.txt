@@ -1,5 +1,5 @@
-# SMUGA in fm1-base's host simulator: ./build.sh --host, then
-#   app/build/host/smuga_host app/tests/basic.txt app/build/host
+# AETHER in fm1-base's host simulator: ./build.sh --host, then
+#   app/build/host/aether_host app/tests/basic.txt app/build/host
 # (tests/run.sh runs every script here)
 wait 600
 expect slot 3
