@@ -80,6 +80,20 @@ Na ekranie widać widmo ostatniej ramki (40 Hz…16 kHz, linie co oktawę), pozy
 oktawę, liczbę głosów i **CPU %**. Proszę, zanotuj CPU % przy pierwszym uruchomieniu (najlepiej preset FOG,
 8 nut, SIZE 186 ms).
 
+## Emulator w przeglądarce
+
+Cały firmware (panel, ekran, dźwięk) działa też w przeglądarce: ten sam kod, skompilowany do WebAssembly przez
+Emscripten i grany w AudioWorklet (emulator z fm1-base). Klawiatura komputera: `Q`–`I` i `A`–`K` to białe
+klawisze, cyfry to czarne, `Z`/`X` zmieniają oktawę, `P` to HOLD, `O` to FREEZE. Shift-klik trzyma klawisz
+(akordy myszką).
+
+```sh
+./build.sh --web                                  # app/build/emu/ (wymaga emcc)
+cd app/build/emu && python3 -m http.server 8000   # http://localhost:8000
+```
+
+CI buduje go przy każdym pushu (artefakt `smuga-emulator`).
+
 ## Własny sample
 
 ```sh

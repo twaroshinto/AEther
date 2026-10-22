@@ -31,6 +31,26 @@ jobs:
             app/build/host/*.png
             app/build/host/*.wav
 
+  emulator:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install Pillow numpy
+      - uses: mymindstorm/setup-emsdk@v14
+      - run: ./build.sh --web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smuga-emulator
+          path: |
+            app/build/emu/index.html
+            app/build/emu/worklet.js
+            app/build/emu/app.wasm
+
   firmware:
     runs-on: ubuntu-24.04
     permissions:
