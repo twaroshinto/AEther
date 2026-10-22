@@ -57,10 +57,13 @@ def dump(path):
 
 
 def sym(path, names):
-    t = open(path).read()
+    found = {}
+    for line in open(path, errors='replace'):
+        f = line.split()
+        if len(f) >= 4 and re.fullmatch(r'[0-9a-f]{8}', f[0]) and re.fullmatch(r'[0-9a-f]{8}', f[-2]):
+            found.setdefault(f[-1], (f[0], int(f[-2], 16)))
     for n in names:
-        m = re.search(r'^([0-9a-f]{8}) .*\t([0-9a-f]{8}) ' + re.escape(n) + r'$', t, re.M)
-        print(n, ('0x' + m.group(1) + ' ' + str(int(m.group(2), 16))) if m else 'missing')
+        print(n, ('0x%s %d' % found[n]) if n in found else 'missing')
 
 
 if __name__ == '__main__':
