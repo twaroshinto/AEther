@@ -1237,16 +1237,42 @@ static void page_button(uint32_t first, uint32_t last)
     page_set(pg > last || !page_ok(pg) ? first : pg);
 }
 
+/* The keys, sensed (lib/touch: velocity, pressure). Where the sensing never reports a press that the key scan shows
+ * (an emulator without the analog readings, fm1-emu), the scan's keys after 40 ms, at a fixed velocity, until
+ * power-off; a unit whose sensing works reports within milliseconds, and keeps it. */
+static uint8_t keys_sensed, keys_plain;
+static uint32_t keys_plain_since;
+
+static uint32_t keys_read(void)
+{
+    uint32_t keys = touch_keys(), raw = plat_keys(), amask = 0, k, now = plat_ms();
+    if (keys_plain)
+        return raw;
+    for (k = 0; k < NKEYS; k++)
+        amask |= (uint32_t)sense_is_analog(k) << k;
+    if (keys & amask)
+        keys_sensed = 1;
+    if (keys_sensed || !(raw & amask & ~keys)) {
+        keys_plain_since = now;
+        return keys;
+    }
+    if (now - keys_plain_since >= 40u) {
+        keys_plain = 1;
+        return raw;
+    }
+    return keys;
+}
+
 static void input(void)
 {
     uint32_t keys, btn = plat_buttons(), k;
     int32_t e;
     touch_poll();
-    keys = touch_keys();
+    keys = keys_read();
     for (k = 0; k < NKEYS; k++) {
         uint32_t bit = 1u << k, note = (uint32_t)key_note(k);
         if ((keys & bit) && !(ui.keys & bit)) {
-            uint32_t v = touch_vel(k);
+            uint32_t v = keys_plain ? 100u : touch_vel(k);
             if (hold) {
                 if (!(ui.keys & keys & ~bit))    /* the first key of a new chord: the old one goes */
                     hold_release();
