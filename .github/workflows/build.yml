@@ -85,6 +85,7 @@ jobs:
         run: |
           export JIELI_TOOLCHAIN=~/.jieli/toolchain AC79_SDK=~/.jieli/ac79-sdk
           if [ "${GITHUB_REF_TYPE}" = tag ]; then ./build.sh --release "${GITHUB_REF_NAME#v}"; else ./build.sh; fi
+          ~/.jieli/toolchain/common/bin/objdump -t app/build/aether.elf > app/build/aether.syms || true
       - uses: actions/upload-artifact@v4
         with:
           name: aether-firmware
@@ -94,8 +95,8 @@ jobs:
           name: aether-firmware-debug
           path: |
             app/build/*.elf
-            app/build/*.map
-            app/build/*.bin
+            app/build/*.syms
+            app/build/*.dis
           if-no-files-found: ignore
       - name: Release
         if: github.ref_type == 'tag'
@@ -119,16 +120,28 @@ jobs:
           git clone -q https://github.com/joakimeriksson/fm1-emu ~/fm1-emu
           git -C ~/fm1-emu checkout -q db8d472e62f35d18e392e3abc66474daed65ffe9
           cargo build -q --release --manifest-path ~/fm1-emu/Cargo.toml -p fm1-emu
+      - uses: actions/download-artifact@v4
+        with:
+          name: aether-firmware-debug
+          path: fw
       - name: Run
         run: |
-          mkdir -p out/work && cd out
-          FM1_AUDIO_TRACE=1 timeout 1500 ~/fm1-emu/target/release/fm1-emu --fwsc ../fw/aether.fwsc --ms 9000 \
-            --wav aether.wav --snap 1500,3000,5000,8000 \
-            --keys '2500-8500:C4,2500-8500:E4,2500-8500:G4' > run.log 2>&1 || true
-          mv work/*.bmp . 2>/dev/null || true
-          grep -vE "^audio" run.log | tail -60
-          grep -E "^audio" run.log | head -20
-          python3 ../tools/wav_level.py aether.wav
+          mkdir -p out && cd out
+          python3 ../tools/emu_diag.py sym ../fw/aether.syms buf_l buf_r eng gain_now | tee syms.txt
+          addr() { awk -v n="$1" '$1 == n { print $2 }' syms.txt; }
+          size() { awk -v n="$1" '$1 == n { print $3 }' syms.txt; }
+          ENG=$(addr eng); ENG_END=$(printf '%x' $(( 0x${ENG#0x} + $(size eng) - 640 )))
+          # three runs side by side, each with one --dump at its end: the audio blocks, the engine's start, its end
+          run() {   # NAME DUMP_ADDR WORDS
+            mkdir -p "$1/work" && (cd "$1" && FM1_AUDIO_TRACE=1 timeout 1500 ~/fm1-emu/target/release/fm1-emu \
+              --fwsc ../../fw/aether.fwsc --ms 9000 --wav aether.wav --snap 1500,3000,5000,8000 \
+              --keys '2500-8500:C4,2500-8500:E4,2500-8500:G4' --dump "$2" "$3" > run.log 2>&1 || true)
+          }
+          run blocks "$(addr buf_l)" 512 & run eng "$ENG" 1024 & run engend "$ENG_END" 160 & wait
+          grep -vE "^half|^ +0x|^dump" blocks/run.log | tail -45
+          python3 ../tools/emu_diag.py lcd blocks/work/lcd_1500.bmp blocks/work/lcd_5000.bmp blocks/work/lcd_8000.bmp || true
+          for r in blocks eng engend; do echo "== $r"; python3 ../tools/emu_diag.py dump $r/run.log | head -140; done
+          python3 ../tools/wav_level.py blocks/aether.wav
       - uses: actions/upload-artifact@v4
         if: always()
         with:
