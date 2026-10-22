@@ -1029,6 +1029,27 @@ static int page_ok(uint32_t pg)          /* TONE and ENV A-D are HARM's */
 {
     return set.slot == SLOT_HARM || pg < PG_TONE || pg > PG_ENVD;
 }
+/* the pages of pg's button (EDIT, ENV, LFO; GLO, FX and SEQ have one each) that this source has, in the order the
+ * button steps through them: their count */
+static uint32_t page_group(uint32_t pg, uint32_t *g)
+{
+    static const uint8_t GROUP[][6] = {
+        {PG_SOURCE, PG_TONE, NPAGE},
+        {PG_SPACE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, NPAGE},
+        {PG_LFO1, PG_LFO2, PG_LFO3, PG_MENV1, PG_MENV2, NPAGE},
+    };
+    uint32_t i, k, n;
+    for (i = 0; i < sizeof GROUP / sizeof GROUP[0]; i++)
+        for (k = 0; GROUP[i][k] != NPAGE; k++)
+            if (GROUP[i][k] == pg) {
+                for (n = 0, k = 0; GROUP[i][k] != NPAGE; k++)
+                    if (page_ok(GROUP[i][k]))
+                        g[n++] = GROUP[i][k];
+                return n;
+            }
+    g[0] = pg;
+    return 1;
+}
 static int page_is_mod(uint32_t pg) { return pg >= PG_LFO1 && pg <= PG_MATRIX; }
 
 static const uint8_t *page_params(void)
@@ -1591,14 +1612,13 @@ static void draw_params(void)
     uint32_t k, now = plat_ms();
     const uint8_t *pp = page_params();
     cv_begin(240, 98, C_BLACK);
-    {                                    /* this page's name, and a dot for each page this source has */
-        int32_t x = 236;
+    {                                    /* this page's name, and a dot for each page of its button's group (in
+                                          * the order the button steps through them; none for a page alone) */
+        uint32_t g[6], n = page_group(ui.page, g);
+        int32_t x = 236 - 8 * (int32_t)n;
         cv_text(4, 0, &FONT_XS, PAGE_NAME[ui.page], C_HI);
-        for (k = NPAGE; k-- > 0;)
-            if (page_ok(k)) {
-                x -= 8;
-                cv_rect(x, 4, 5, 5, k == ui.page ? C_HI : C_LINE);
-            }
+        for (k = 0; n > 1u && k < n; k++)
+            cv_rect(x + 8 * (int32_t)k + 3, 4, 5, 5, g[k] == ui.page ? C_HI : C_LINE);
     }
     for (k = 0; k < 4u; k++) {           /* K1 .. K4: name, value, a bar */
         int32_t x = 4 + (int32_t)(k % 2u) * 120, y = 14 + (int32_t)(k / 2u) * 33, w;
