@@ -5,7 +5,7 @@ sysex app/build/host/user.syx
 wait 50
 expect sysex_errors 0
 expect user_len 33075
-expect slot 18
+expect slot 19
 expect src_len 33075
 expect dirty 1
 key 7 down 100

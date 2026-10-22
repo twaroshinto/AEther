@@ -2,7 +2,7 @@
 #   app/build/host/smuga_host app/tests/basic.txt app/build/host
 # (tests/run.sh runs every script here)
 wait 600
-expect slot 2
+expect slot 3
 expect preset 0
 expect page 0
 expect src_len 44100
@@ -27,14 +27,14 @@ expect late 0
 # the pages and their knobs
 tap SEL
 wait 30
-expect page 1
+expect page 6
 turn K1 5
 wait 100
 expect v8 85
 expect dirty 1
 tap FX
 wait 30
-expect page 2
+expect page 10
 shot color.png
 tap EDIT
 wait 30
@@ -43,8 +43,8 @@ expect page 0
 spin K1 80
 wait 100
 expect v0 127
-# the PAD source (two back from CHOIR, past VA), a preset, HOLD
-spin ALGO -2
+# the PAD source (three back from CHOIR, past HARM and VA), a preset, HOLD
+spin ALGO -3
 wait 50
 expect slot 0
 turn PRESET 2

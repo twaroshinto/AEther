@@ -535,6 +535,105 @@ static void t_sbr(const char *ref, const char *sbr, const char *nosbr)
     CHECK(db > 3.0 * da, "sbr: no better than without (%.1f against %.1f dB)", da, db);
 }
 
+/* HARM: what each control promises, measured at the harmonics' own frequencies */
+static double goertzel_db(const rec_t *rc, double t0, double t1, double f)
+{
+    uint32_t a = (uint32_t)(t0 * SMG_FS), b = (uint32_t)(t1 * SMG_FS), i;
+    double w = 2.0 * M_PI * f / SMG_FS, c = 2.0 * cos(w), s1 = 0.0, s2 = 0.0, best = 0.0, df;
+    for (df = -6.0; df <= 6.0; df += 3.0) {      /* the band is a few Hz wide: its strongest point */
+        w = 2.0 * M_PI * (f + df) / SMG_FS;
+        c = 2.0 * cos(w);
+        s1 = s2 = 0.0;
+        for (i = a; i < b; i++) {
+            double s0 = rc->l[i] + c * s1 - s2;
+            s2 = s1;
+            s1 = s0;
+        }
+        if (s1 * s1 + s2 * s2 - c * s1 * s2 > best)
+            best = s1 * s1 + s2 * s2 - c * s1 * s2;
+    }
+    return 10.0 * log10(best / ((double)(b - a) * (b - a)) + 1e-30);
+}
+
+static void harm_reset(void)
+{
+    smg_init(&eng, ram);
+    eng.p.source = SMG_SRC_HARM;
+    eng.p.attack = 0.02f;
+    eng.p.release = 0.2f;
+    eng.p.width = 0.0f;
+    eng.p.h_band = 4.0f;
+    eng.p.h_slope = 0.5f;
+    eng.p.h_vel = 0.0f;
+}
+
+static void t_harm(void)
+{
+    rec_t rc = {0};
+    const double f0 = 130.8128;          /* C3 */
+    double h2, h3, h4, h5, h6, early3, late3, early1, late1;
+    printf("harm: ODD takes the even harmonics out; BOOST lifts the focus; an envelope on H3 moves H3 only\n");
+    harm_reset();
+    eng.p.h_odd = 1.0f;
+    smg_note_on(&eng, 48, 1.0f);
+    rec_run(&rc, 1.5f);
+    h2 = goertzel_db(&rc, 0.5, 1.5, 2 * f0);
+    h3 = goertzel_db(&rc, 0.5, 1.5, 3 * f0);
+    printf("  ODD 100%%: H2 %.1f dB, H3 %.1f dB\n", h2, h3);
+    CHECK(h3 - h2 > 30.0, "harm: ODD leaves H2 at %.1f dB under H3", h3 - h2);
+    check_sane(&rc, "harm odd");
+    rec_free(&rc);
+
+    memset(&rc, 0, sizeof rc);
+    harm_reset();
+    eng.p.h_focus = 5.0f;
+    eng.p.h_boost = 18.0f;
+    eng.p.h_width = 0.6f;
+    smg_note_on(&eng, 48, 1.0f);
+    rec_run(&rc, 1.5f);
+    h4 = goertzel_db(&rc, 0.5, 1.5, 4 * f0);
+    h5 = goertzel_db(&rc, 0.5, 1.5, 5 * f0);
+    h6 = goertzel_db(&rc, 0.5, 1.5, 6 * f0);
+    printf("  BOOST +18 dB at H5: H4 %.1f, H5 %.1f, H6 %.1f dB\n", h4, h5, h6);
+    CHECK(h5 - h4 > 10.0 && h5 - h6 > 10.0, "harm: H5 not lifted (%.1f / %.1f / %.1f)", h4, h5, h6);
+    rec_free(&rc);
+
+    memset(&rc, 0, sizeof rc);
+    harm_reset();
+    eng.p.size = SMG_SIZE_2K;            /* (shorter frames: the envelope's time is clearer) */
+    eng.p.h_target[0] = 3;               /* envelope A on the third harmonic: up fast, gone in a second */
+    eng.p.h_att[0] = 0.05f;
+    eng.p.h_dec[0] = 0.8f;
+    eng.p.h_sus[0] = 0.0f;
+    smg_note_on(&eng, 48, 1.0f);
+    rec_run(&rc, 3.0f);
+    early3 = goertzel_db(&rc, 0.1, 0.4, 3 * f0);
+    late3 = goertzel_db(&rc, 2.0, 3.0, 3 * f0);
+    early1 = goertzel_db(&rc, 0.1, 0.4, f0);
+    late1 = goertzel_db(&rc, 2.0, 3.0, f0);
+    printf("  ENV A on H3 (decay 0.8 s, sustain 0): H3 %.1f -> %.1f dB, H1 %.1f -> %.1f dB\n", early3, late3, early1, late1);
+    CHECK(early3 - late3 > 30.0, "harm: H3 only fell %.1f dB", early3 - late3);
+    CHECK(fabs(early1 - late1) < 3.0, "harm: H1 moved %.1f dB", late1 - early1);
+    CHECK(eng.late == 0, "harm: %u frames late", eng.late);
+    rec_wav(&rc, "harm_env.wav");
+    rec_free(&rc);
+
+    memset(&rc, 0, sizeof rc);           /* everything at once, 8 voices, every target */
+    harm_reset();
+    eng.p.h_count = 64;
+    eng.p.h_band = 80.0f;
+    eng.p.sub = eng.p.shimmer = 0.5f;
+    for (int k = 0; k < 4; k++)
+        eng.p.h_target[k] = (uint8_t)(SMG_HT_ODD + k);
+    for (int i = 0; i < 8; i++)
+        smg_note_on(&eng, 36 + i * 5, 0.3f + 0.1f * i);
+    rec_run(&rc, 3.0f);
+    check_sane(&rc, "harm all");
+    CHECK(eng.late == 0, "harm all: %u frames late", eng.late);
+    CHECK(eng.units_peak <= eng.units_bound, "harm all: %u units over the bound %u", eng.units_peak, eng.units_bound);
+    rec_free(&rc);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1)
@@ -546,6 +645,7 @@ int main(int argc, char **argv)
     t_budget();
     t_va();
     t_builtins();
+    t_harm();
     if (argc > 3)
         t_adpcm(argv[2], argv[3]);
     if (argc > 6)

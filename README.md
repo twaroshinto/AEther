@@ -5,15 +5,17 @@ długie okna, zachowane amplitudy widma, **losowe fazy** i nakładanie ramek. Z 
 nieskończona chmura. Custom firmware na [fm1-base](https://github.com/charlesvestal/fm1-base) /
 [felucca-bsp](https://github.com/hugelton/felucca-bsp).
 
-> **Status: v0.1, nietestowane na sprzęcie.** Silnik i cała aplikacja przechodzą testy w symulatorze fm1-base
+> **Status: v0.4, nietestowane na sprzęcie.** Silnik i cała aplikacja przechodzą testy w symulatorze fm1-base
 > (te same źródła co firmware), a CI buduje plik `.fwsc` toolchainem JieLi. Na prawdziwym FM-1 jeszcze nie grało:
 > pierwsze uruchomienie to test, nie występ. Instalujesz na własne ryzyko.
 
-![ekran](docs/img/screens.png)
+![panel](docs/img/manual/panel_numbered.png)
+
+**[Instrukcja obsługi](docs/MANUAL.md)**: każda gałka, strona i preset, ze zrzutami z emulatora.
 
 ## Jak to brzmi i jak działa
 
-Trzy rodzaje źródeł widma, jeden silnik:
+Cztery rodzaje źródeł widma, jeden silnik:
 
 - **Sample** (16 wbudowanych + USER): sample skanowany bardzo powoli (STRETCH od 1x do ∞), czyli PaulStretch
   wprost. Wbudowane są syntetyzowane przy budowaniu (`app/tools/gen_source.py`), a własne wgrywasz po USB-MIDI.
@@ -25,6 +27,13 @@ Trzy rodzaje źródeł widma, jeden silnik:
 - **PAD**: [PADsynth](https://zynaddsubfx.sourceforge.io/doc/PADsynth/PADsynth.htm) tego samego autora: każda
   harmoniczna nuty to gaussowskie pasmo w widmie (szerokość BAND w centach). Nie potrzebuje żadnego materiału
   wejściowego: widmo powstaje od razu w dziedzinie częstotliwości.
+- **HARM**: generator harmonicznych rysowany wprost w widmie: liczba harmonicznych (1–64), nachylenie, balans
+  parzyste/nieparzyste, uwypuklenie lub wycięcie wokół wybranej harmonicznej, barwa zależna od dynamiki, i
+  **cztery obwiednie** (ATTACK, DECAY, SUSTAIN), każda przypisana do jednej harmonicznej albo grupy (ODD, EVEN,
+  LOW, MID, HIGH, ALL).
+
+Do tego **modulacja**: dwa LFO (7 kształtów, w tym losowy i dryf) i obwiednia modulacyjna wyzwalana nutą, każde
+z wybieralnym celem (20 parametrów) i głębokością ±100 %.
 
 | Wbudowane sample | |
 |---|---|
@@ -49,36 +58,11 @@ oryginału w paśmie 5–16 kHz średnio o 2,0 dB z SBR, a bez SBR o 14,4 dB.
 
 ## Obsługa
 
-| Element | Funkcja |
-|---|---|
-| Klawisze | nuty z velocity, **OCT− / OCT+** oktawa |
-| **K1–K4** | cztery parametry bieżącej strony |
-| **SEL** / **SELECT** | następna strona: SOURCE → SPACE → COLOR (**EDIT**, **ENV**, **FX** skaczą wprost) |
-| **ALGORITHM** | źródło: PAD / VA / 16 wbudowanych sampli / USER (USER tylko po wgraniu sampla) |
-| **PRESET** | presety fabryczne |
-| **PLAY** | HOLD: nuty zostają po puszczeniu klawiszy; nowy akord zastępuje poprzedni |
-| **REC** | FREEZE: widmo zamrożone (sample: skan staje; VA: chwila zatrzymana) |
-| **HOME** | wszystkie nuty off (i HOLD off) |
-| **SAVE** | zapis ustawień |
-| MASTER | głośność |
-
-| Strona | K1 | K2 | K3 | K4 |
-|---|---|---|---|---|
-| SOURCE (sample) | STRETCH 1x…10000x, ∞ | POSITION | SPREAD (rozmycie widma) | SIZE 23…186 ms |
-| SOURCE (PAD) | BRIGHT | BAND (centy) | INHARM | ODD (bez parzystych) |
-| SOURCE (VA) | SHAPE saw → square → pulse | CUTOFF 60 Hz…18 kHz (stały dla wszystkich klawiszy) | RESO | MOTION (wolne LFO i dryf odcięcia) |
-| SPACE | ATTACK | RELEASE | WIDTH (stereo) | LEVEL |
-| COLOR | TILT ±6 dB/okt | SUB (oktawa niżej) | SHIMMER (oktawa wyżej) | SIZE |
-
-MIDI in (USB, TRS): nuty na dowolnym kanale, CC64 sustain, **CC1 POSITION** (przewijanie sampla kółkiem
-modulacji), CC71 SPREAD, CC74 TILT, CC120/123 wszystko off. Nuty z klawiatury FM-1 wychodzą po USB.
-
-Presety: GLACIER, FOG, HALO, ORGAN DUST, BELL CLOUD, ANALOG MIST, RESO SWEEP, GLASS RAIN, HARP DREAM,
-WIND TUNNEL, FELT DREAM, CELLO SEA, TANPURA, RAIN ROOM, DAWN, TAPE MEMORY, GRAIN, FROZEN, DEEP.
-
-Na ekranie widać widmo ostatniej ramki (40 Hz…16 kHz, linie co oktawę), pozycję skanu sampla na górze, a w stopce
-oktawę, liczbę głosów i **CPU %**. Proszę, zanotuj CPU % przy pierwszym uruchomieniu (najlepiej preset FOG,
-8 nut, SIZE 186 ms).
+Skrót (pełna wersja w [docs/MANUAL.md](docs/MANUAL.md)): **ALGORITHM** wybiera źródło, **PRESETS** preset,
+**KNOB 1–4** to cztery parametry bieżącej strony, a strony zmieniasz przyciskami **EDIT** (SOURCE, TONE),
+**ENV** (SPACE, ENV A–D), **LFO** (LFO 1, LFO 2, MOD ENV), **FX** (COLOR) albo **SEL**/**SELECT** po kolei.
+**PLAY** to HOLD, **REC** to FREEZE, **HOME** wycisza, **SAVE** zapisuje. MIDI: nuty, CC64 sustain, CC1 POSITION,
+CC71 SPREAD, CC74 TILT.
 
 ## Emulator w przeglądarce
 

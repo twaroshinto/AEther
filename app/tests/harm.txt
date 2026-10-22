@@ -1,0 +1,67 @@
+# HARM, its pages, the harmonic envelopes, and the modulators (LFO 1, LFO 2, MOD ENV)
+wait 600
+# HARM is the third source: from CHOIR, one back
+spin ALGO -1
+wait 50
+expect slot 2
+expect page 0
+tap EDIT
+wait 30
+expect page 1
+tap EDIT
+wait 30
+expect page 0
+# ENV: SPACE, then ENV A .. D, then SPACE again
+tap ENV
+wait 30
+expect page 6
+tap ENV
+wait 30
+expect page 2
+# ENV A on the third harmonic: TARGET 3, a fast attack, a decay of a second
+spin K1 3
+wait 30
+expect v27 3
+key 7 down 100
+wav harm.wav
+wait 3000
+wavstop
+expect peak_db_min -30
+key 7 up
+expect late 0
+# a preset of HARM's, with an LFO moving FOCUS
+spin PRESET 9
+wait 50
+expect preset 9
+expect slot 2
+tap LFO
+wait 30
+expect page 7
+expect v45 18
+key 7 down 100
+wait 2500
+# the LFO moves FOCUS (parameter 23) away from its knob (6: H7); the knob keeps its value
+expect v23 6
+expect mod23 >8
+key 7 up
+tap LFO
+wait 30
+expect page 8
+tap LFO
+wait 30
+expect page 9
+tap LFO
+wait 30
+expect page 7
+# away from HARM, its pages go: LFO stays, SEL skips TONE and ENV A-D
+spin ALGO 1
+wait 50
+expect slot 3
+tap EDIT
+wait 30
+tap SEL
+wait 30
+expect page 6
+tap SEL
+wait 30
+expect page 7

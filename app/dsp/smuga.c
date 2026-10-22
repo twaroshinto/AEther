@@ -156,14 +156,77 @@ static float pad_amp(const smg_params_t *p, uint32_t h)
         a *= 1.0f - p->odd;
     return a;
 }
+/* HARM */
+float smg_harm_level(const smg_params_t *p, uint32_t h, float vel)
+{
+    float lh = fm_log2f((float)h), slope = p->h_slope + p->h_vel * (1.0f - vel) * 1.5f, a, d, db;
+    a = fm_exp2f(-slope * lh);
+    if (p->h_odd > 0.0f && !(h & 1u))
+        a *= 1.0f - p->h_odd;
+    if (p->h_odd < 0.0f && (h & 1u) && h > 1u)    /* (the fundamental stays: the note's pitch) */
+        a *= 1.0f + p->h_odd;
+    d = ((float)h - p->h_focus) / fm_maxf(p->h_width, 0.3f);
+    db = p->h_boost * fm_expf(-d * d);
+    return a * fm_exp2f(db * 0.16609640f);       /* 10^(dB / 20) */
+}
+
+int smg_harm_takes(uint32_t target, uint32_t h)
+{
+    if (target >= 1u && target <= SMG_HT_H32)
+        return h == target;
+    switch (target) {
+    case SMG_HT_ODD: return (h & 1u) != 0;
+    case SMG_HT_EVEN: return !(h & 1u);
+    case SMG_HT_LOW: return h <= 4u;
+    case SMG_HT_MID: return h >= 5u && h <= 12u;
+    case SMG_HT_HIGH: return h >= 13u;
+    case SMG_HT_ALL: return 1;
+    default: return 0;
+    }
+}
+
+float smg_harm_env(const smg_params_t *p, uint32_t k, float t)   /* attack to 1, decay to sustain, then stays */
+{
+    float a = fm_maxf(p->h_att[k], 0.005f), d = fm_maxf(p->h_dec[k], 0.005f), s = fm_clampf(p->h_sus[k], 0.0f, 1.0f);
+    if (t < a)
+        return t / a;
+    if (t < a + d)
+        return 1.0f - (1.0f - s) * (t - a) / d;
+    return s;
+}
+
+/* a harmonic's level in a layer: PAD's slope, or HARM's shape and envelopes (the voice's time since its note) */
+static float src_amp(const smg_t *e, uint32_t h)
+{
+    const smg_params_t *p = &e->fp;
+    const smg_voice_t *vc = &e->voice[e->v];
+    float a, t;
+    uint32_t k;
+    if (p->source != SMG_SRC_HARM)
+        return pad_amp(p, h);
+    a = smg_harm_level(p, h, vc->vel);
+    t = (float)vc->age * (float)e->hop / (float)SMG_FS;
+    for (k = 0; k < SMG_HENV; k++)
+        if (smg_harm_takes(p->h_target[k], h))
+            a *= smg_harm_env(p, k, t);
+    return a;
+}
+
+static uint32_t src_hmax(const smg_params_t *p)
+{
+    return p->source == SMG_SRC_HARM ? (p->h_count < 1u ? 1u : p->h_count > SMG_HARM_MAX ? SMG_HARM_MAX : p->h_count)
+                                     : PAD_HMAX;
+}
+
 /* the units voice_pad_step takes for one layer at this ratio (the same bands, counted) */
 static uint32_t pad_units(const smg_t *e, float ratio)
 {
     const smg_params_t *p = &e->fp;
-    float binhz = (float)SMG_FS / (float)e->n, f0 = 261.6256f * ratio, bb = p->inharm * p->inharm * 0.0015f;
-    float bw = fm_exp2f(fm_clampf(p->bandwidth, 1.0f, 300.0f) / 1200.0f) - 1.0f;
-    uint32_t h, u = PAD_HMAX + 1u;
-    for (h = 1; h <= PAD_HMAX; h++) {
+    int harm = p->source == SMG_SRC_HARM;
+    float binhz = (float)SMG_FS / (float)e->n, f0 = 261.6256f * ratio, bb = harm ? 0.0f : p->inharm * p->inharm * 0.0015f;
+    float bw = fm_exp2f(fm_clampf(harm ? p->h_band : p->bandwidth, 1.0f, 300.0f) / 1200.0f) - 1.0f;
+    uint32_t h, u = PAD_HMAX + 1u, hmax = src_hmax(p);
+    for (h = 1; h <= hmax; h++) {
         float fh = f0 * (float)h * fm_sqrtf(1.0f + bb * (float)(h * h));
         if (fh >= 0.45f * (float)SMG_FS)
             break;
@@ -201,7 +264,7 @@ static uint32_t bound(const smg_t *e)
         float r;
         if (vc->note < 0 || vc->level <= 0.0f)
             continue;
-        if (e->fp.source != SMG_SRC_PAD) {
+        if (e->fp.source != SMG_SRC_PAD && e->fp.source != SMG_SRC_HARM) {
             layers += 1u + (e->fp.sub >= 0.001f) + (e->fp.shimmer >= 0.001f);
             continue;
         }
@@ -546,31 +609,32 @@ static void voice_sample_step(smg_t *e)
         layer_done(e);
 }
 
-static void voice_pad_step(smg_t *e)
+static void voice_pad_step(smg_t *e)   /* PAD and HARM */
 {
     const smg_params_t *p = &e->fp;
+    int harm = p->source == SMG_SRC_HARM;
     float binhz = (float)SMG_FS / (float)e->n, half = (float)(e->n / 2u);
-    float f0 = 261.6256f * e->lay_ratio, bb = p->inharm * p->inharm * 0.0015f;
-    float bw = fm_exp2f(fm_clampf(p->bandwidth, 1.0f, 300.0f) / 1200.0f) - 1.0f;
-    uint32_t h = e->i + 1u;
+    float f0 = 261.6256f * e->lay_ratio, bb = harm ? 0.0f : p->inharm * p->inharm * 0.0015f;
+    float bw = fm_exp2f(fm_clampf(harm ? p->h_band : p->bandwidth, 1.0f, 300.0f) / 1200.0f) - 1.0f;
+    uint32_t h = e->i + 1u, hmax = src_hmax(p);
     float fh, a, c, sig, amp, inv2s2;
     int32_t lo, hi, k;
     if (h == 1u) {                       /* the voice's norm: its harmonics' power summed, to an RMS of 0.25 */
         float pw = 0.0f;
         uint32_t q;
-        for (q = 1; q <= PAD_HMAX && f0 * (float)q < 0.45f * (float)SMG_FS; q++) {
-            float aq = pad_amp(p, q);
+        for (q = 1; q <= hmax && f0 * (float)q < 0.45f * (float)SMG_FS; q++) {
+            float aq = harm ? smg_harm_level(p, q, e->voice[e->v].vel) : pad_amp(p, q);
             pw += aq * aq;
         }
         e->lay_norm = pw > 0.0f ? 0.22f * fm_rsqrtf(pw) : 0.0f;
         e->units += q;
     }
     fh = f0 * (float)h * fm_sqrtf(1.0f + bb * (float)(h * h));
-    if (h > PAD_HMAX || fh >= 0.45f * (float)SMG_FS) {
+    if (h > hmax || fh >= 0.45f * (float)SMG_FS) {
         layer_done(e);
         return;
     }
-    a = pad_amp(p, h) * e->lay_norm * e->lay_gain;
+    a = src_amp(e, h) * e->lay_norm * e->lay_gain;
     c = fh / binhz;
     sig = fm_clampf(0.5f * bw * fh / binhz, 0.75f, 96.0f);
     amp = a * fm_rsqrtf(sig * 1.7724539f);   /* a / sqrt(sigma sqrt(pi)): the band's power is a^2 */
@@ -697,7 +761,7 @@ static void step(smg_t *e)
     case S_SPR2: spread_step(e); break;
     case S_CLEAR: clear_step(e); break;
     case S_VOICE:
-        if (e->fp.source != SMG_SRC_PAD) {
+        if (e->fp.source != SMG_SRC_PAD && e->fp.source != SMG_SRC_HARM) {
             if (e->src_ok)
                 voice_sample_step(e);
             else
@@ -914,6 +978,20 @@ void smg_defaults(smg_params_t *p)
     p->level = 1.0f;
     p->lp_hz = 0.0f;
     p->lp_reso = 0.0f;
+    p->h_count = 24;
+    p->h_slope = 1.0f;
+    p->h_odd = 0.0f;
+    p->h_band = 12.0f;
+    p->h_focus = 4.0f;
+    p->h_boost = 0.0f;
+    p->h_width = 1.5f;
+    p->h_vel = 0.5f;
+    for (int k = 0; k < (int)SMG_HENV; k++) {
+        p->h_target[k] = SMG_HT_OFF;
+        p->h_att[k] = 0.5f;
+        p->h_dec[k] = 2.0f;
+        p->h_sus[k] = 0.5f;
+    }
 }
 
 void smg_init(smg_t *e, float *ram)

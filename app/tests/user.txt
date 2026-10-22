@@ -14,7 +14,7 @@ wait 10
 expect user_len 33075
 spin ALGO -1
 wait 50
-expect slot 18
+expect slot 19
 expect src_len 33075
 key 7 down 100
 wav user.wav

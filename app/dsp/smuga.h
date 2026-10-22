@@ -31,7 +31,15 @@
 
 /* PAD: harmonic bands built in the spectrum; SAMPLE: a sample scanned slowly; LIVE: whatever the caller pushes
  * (smg_live_push: a synthesizer running beside the engine), its newest window analysed every frame */
-enum { SMG_SRC_PAD, SMG_SRC_SAMPLE, SMG_SRC_LIVE, SMG_NSRC };
+/* HARM: an additive generator drawn straight into the spectrum: each note's harmonics (how many, their slope,
+ * odd against even, a boost or cut around one of them, brightness by velocity), each a narrow band as PAD's, and
+ * four envelopes that each move the harmonics they are given (one, a group, all), from the note's start */
+enum { SMG_SRC_PAD, SMG_SRC_SAMPLE, SMG_SRC_LIVE, SMG_SRC_HARM, SMG_NSRC };
+#define SMG_HARM_MAX 64u
+#define SMG_HENV 4u
+/* an envelope's target: 0 none, 1 .. 32 that harmonic, then the groups */
+enum { SMG_HT_OFF = 0, SMG_HT_H32 = 32, SMG_HT_ODD, SMG_HT_EVEN, SMG_HT_LOW, SMG_HT_MID, SMG_HT_HIGH, SMG_HT_ALL,
+       SMG_NHT };                        /* LOW 1-4, MID 5-12, HIGH 13 and up */
 /* sample formats: 16-bit PCM, or IMA ADPCM (4 bits a sample) in blocks of SMG_ADPCM_BLOCK samples, each block
  * SMG_ADPCM_BYTES bytes: the first sample (int16, little-endian), the step index, a zero, then the other 255
  * samples' codes, two a byte, the low nibble first. Blocks start afresh, so any point is at most 255 codes away. */
@@ -90,6 +98,18 @@ typedef struct {
     float lp_hz;                         /* a resonant 24 dB/octave low-pass on the spectrum, the same for every
                                           * key (the VA's filter); 0 = off */
     float lp_reso;                       /* 0 .. 1 */
+    /* HARM */
+    uint8_t h_count;                     /* harmonics, 1 .. SMG_HARM_MAX */
+    uint8_t h_target[SMG_HENV];          /* each envelope's harmonics: SMG_HT_* */
+    uint8_t rsv2[3];
+    float h_slope;                       /* 0 .. 3: the harmonics fall as 1 / h^slope */
+    float h_odd;                         /* -1 .. 1: even only .. both .. odd only */
+    float h_band;                        /* cents: each harmonic's width */
+    float h_focus;                       /* the harmonic the boost is centred on, 1 .. 32 */
+    float h_boost;                       /* dB, -24 .. +24, at the focus */
+    float h_width;                       /* the boost's width, in harmonics */
+    float h_vel;                         /* 0 .. 1: softer notes darker */
+    float h_att[SMG_HENV], h_dec[SMG_HENV], h_sus[SMG_HENV];   /* seconds, seconds, 0 .. 1 */
 } smg_params_t;
 
 typedef struct {
@@ -143,3 +163,8 @@ void smg_panic(smg_t *e);                /* silence now */
 void smg_render(smg_t *e, float *l, float *r, uint32_t n);
 uint32_t smg_size_n(uint32_t size);      /* SMG_SIZE_* -> frame length */
 int smg_active(const smg_t *e);          /* voices sounding */
+/* HARM's pieces, for a screen as well: harmonic h's level before the envelopes (velocity vel 0 .. 1), whether a
+ * target takes harmonic h, an envelope's value t seconds into a note */
+float smg_harm_level(const smg_params_t *p, uint32_t h, float vel);
+int smg_harm_takes(uint32_t target, uint32_t h);
+float smg_harm_env(const smg_params_t *p, uint32_t k, float t);
