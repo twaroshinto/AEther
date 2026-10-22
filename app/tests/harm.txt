@@ -37,7 +37,9 @@ expect slot 2
 tap LFO
 wait 30
 expect page 7
-expect v45 18
+# the matrix's first slot: LFO 1 (source 1) on FOCUS (destination 18)
+expect v63 1
+expect v64 18
 key 7 down 100
 wait 2500
 # the LFO moves FOCUS (parameter 23) away from its knob (6: H7); the knob keeps its value
@@ -50,6 +52,12 @@ expect page 8
 tap LFO
 wait 30
 expect page 9
+tap LFO
+wait 30
+expect page 10
+tap LFO
+wait 30
+expect page 11
 tap LFO
 wait 30
 expect page 7

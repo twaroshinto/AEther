@@ -25,9 +25,9 @@
 
 /* the RAM the engine needs, in floats: the complex FFT buffer (2N), the source and output magnitudes (N/2 + 1 each),
  * the play and tail buffers of both channels (N/2 each), the synthesis window (N/2), a quarter sine (N/4 + 1), the
- * LIVE source's ring (N) */
+ * LIVE source's ring (N), the second core's spectrum (N/2 + 1) */
 #define SMG_RAM_FLOATS (2u * SMG_NMAX + 2u * (SMG_NMAX / 2u + 1u) + 4u * (SMG_NMAX / 2u) + SMG_NMAX / 2u + \
-                        SMG_NMAX / 4u + 1u + SMG_NMAX)
+                        SMG_NMAX / 4u + 1u + SMG_NMAX + SMG_NMAX / 2u + 1u)
 
 /* PAD: harmonic bands built in the spectrum; SAMPLE: a sample scanned slowly; LIVE: whatever the caller pushes
  * (smg_live_push: a synthesizer running beside the engine), its newest window analysed every frame */
@@ -98,6 +98,8 @@ typedef struct {
     float lp_hz;                         /* a resonant 24 dB/octave low-pass on the spectrum, the same for every
                                           * key (the VA's filter); 0 = off */
     float lp_reso;                       /* 0 .. 1 */
+    uint8_t voice_cap;                   /* the overload guard: voices at most (0: all SMG_VOICES) */
+    uint8_t no_layers;                   /* the overload guard: SUB and SHIMMER left out */
     /* HARM */
     uint8_t h_count;                     /* harmonics, 1 .. SMG_HARM_MAX */
     uint8_t h_target[SMG_HENV];          /* each envelope's harmonics: SMG_HT_* */
@@ -121,6 +123,16 @@ typedef struct {
     uint32_t age;                        /* frames since its note-on (stealing) */
 } smg_voice_t;
 
+/* a cursor painting voices into a spectrum (smuga.c, "Painting the voices") */
+typedef struct {
+    uint32_t v, vstep, layer, i, units;
+    float ratio, gain, norm;
+    float *acc;
+    uint8_t done, rsv[3];
+} smg_cur_t;
+
+#define SMG_GT 130u                      /* the Gaussian band's table: exp(-x^2 / 2), x = 0 .. 3.225 */
+
 typedef struct {
     smg_params_t p;                      /* written by the caller */
     smg_params_t fp;                     /* this frame's copy */
@@ -132,7 +144,15 @@ typedef struct {
     uint32_t sbr_edge[SMG_SBR_BANDS + 1u];   /* SBR: the bands' first bins (the last: the end) */
     float sbr_p[SMG_SBR_BANDS];          /* the rebuilt bands' energies, then their gains */
     smg_voice_t voice[SMG_VOICES];
-    float *work, *src, *acc, *play[2], *tail[2], *win, *qs;
+    float *work, *src, *acc, *acc2, *play[2], *tail[2], *win, *qs;
+    smg_cur_t c0, c1;                    /* the voices' painters: this core's, the second core's (or this one's) */
+    float gt[SMG_GT];
+    /* a second core (smg_set_par): run(fn, arg) starts fn(arg) there, 1 = taken; wait() 0 = done, else it failed
+     * (one core from then on). The engine gives it half the voices of each frame. */
+    int (*par_run)(void (*fn)(void *), void *arg);
+    int (*par_wait)(void);
+    uint32_t par_budget, par_jobs;
+    uint8_t dual, par_failed, rsv2[2];
     uint32_t n, hop, n_win;              /* the frame being built, its hop, the window's frame */
     uint32_t play_pos, play_len;
     uint8_t st, layer, src_ok, rsv;      /* the job: state, the voice's layer, the source spectrum valid */
@@ -153,6 +173,8 @@ void smg_init(smg_t *e, float *ram);    /* ram: SMG_RAM_FLOATS floats; e->p gets
 void smg_defaults(smg_params_t *p);
 void smg_set_sample(smg_t *e, const void *data, uint32_t len, uint32_t rate, uint32_t fmt);   /* audio context */
 void smg_set_env(smg_t *e, const uint8_t *env, uint32_t frames, uint32_t hop);   /* after smg_set_sample */
+/* a second core: from the next frame half of the voices are painted there (0, 0: one core again) */
+void smg_set_par(smg_t *e, int (*run)(void (*fn)(void *), void *arg), int (*wait)(void));
 int32_t smg_sample_read(smg_t *e, uint32_t i);   /* the sample's value at i (decoded), for tests and screens */
 void smg_live_push(smg_t *e, const float *x, uint32_t n);   /* audio context: LIVE's newest samples, before render */
 void smg_note_on(smg_t *e, int32_t note, float vel);    /* audio context */

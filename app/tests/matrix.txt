@@ -1,0 +1,79 @@
+# the modulation matrix (GLO), its sources (LFOs, envelopes, velocity, the wheel), and the overload guard
+wait 600
+tap GLO
+wait 30
+expect page 12
+# slot 1: LFO 1 > TILT +100 % (source 1, destination 4, amount 127)
+spin K2 1
+spin K3 4
+spin K4 63
+wait 100
+expect v63 1
+expect v64 4
+expect v65 127
+wait 3000
+# TILT (parameter 12) moves away from its knob (64)
+expect v12 64
+expect mod12 >80
+# slot 2: VELOCITY > SPREAD (source 6, destination 3): a hard note opens it
+spin K1 1
+spin K2 6
+spin K3 3
+spin K4 63
+wait 50
+key 7 down 127
+wait 300
+expect src6 100
+expect mod2 >120
+shot matrix.png
+key 7 up
+# MOD ENV 1 rises with a note and falls after it (source 4): attack 0.1 s, release 0.3 s
+tap LFO
+tap LFO
+tap LFO
+tap LFO
+wait 30
+expect page 10
+spin K1 -40
+spin K4 -60
+wait 50
+key 7 down 100
+wait 600
+expect src4 >60
+key 7 up
+wait 1500
+expect src4 <5
+# the wheel (CC1): slot 8 moves POSITION
+midi B0 01 7F
+wait 100
+expect src7 100
+expect mod1 127
+# the overload guard: three overloads, then it gives the steps back after quiet seconds
+overload
+wait 300
+overload
+wait 300
+overload
+wait 100
+expect shed 3
+key 0 down 100
+key 2 down 100
+key 4 down 100
+key 5 down 100
+key 7 down 100
+key 9 down 100
+wait 1000
+expect voices <6
+key 0 up
+key 2 up
+key 4 up
+key 5 up
+key 7 up
+key 9 up
+wait 10000
+expect shed 0
+tap SEQ
+wait 30
+expect page 14
+shot setup.png
+expect late 0

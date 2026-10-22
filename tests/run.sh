@@ -15,7 +15,7 @@ for u in smuga va; do
         -c app/dsp/$u.c -Ibase/include -o "$OUT/$u.o"
 done
 $CC -O2 -ffp-contract=off -std=gnu99 -Wall -Wextra -Iapp/dsp -I"$OUT/gen" \
-    tests/dsp_test.c "$OUT/smuga.o" "$OUT/va.o" -lm -o "$OUT/dsp_test"
+    tests/dsp_test.c "$OUT/smuga.o" "$OUT/va.o" -lm -lpthread -o "$OUT/dsp_test"
 # a stereo 24-bit sweep: the loader's own conversion, as PCM16 and ADPCM flash images (and SysEx) for the tests
 python3 - "$OUT/sweep.wav" <<'PY'
 import math, sys, wave

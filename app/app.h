@@ -11,6 +11,13 @@
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 #define APP_TOUCH                        /* velocity from the keys (lib/touch.h) */
 #define APP_SYSEX                        /* a sample loaded over USB (tools/smuga_load.py) */
+#define APP_OVERLOAD                     /* the overload guard: void app_overload(void) */
+void app_overload(void);
+#ifndef PLAT_HOST
+#define APP_CSTART                       /* the second core held at every start and crash (hw/core1.c) */
+#define APP_FAULT
+void app_cstart(void);
+#endif
 #define FM1B_UAC_DEEP 1                  /* the USB recording keeps a half more: the spectral frames are heavy */
 #define APP_CANVAS_PX (240u * 112u)      /* the drawing strips: 112 rows at most (the engine needs the pool) */
 

@@ -34,7 +34,7 @@ expect v8 85
 expect dirty 1
 tap FX
 wait 30
-expect page 10
+expect page 13
 shot color.png
 tap EDIT
 wait 30
@@ -85,7 +85,9 @@ wait 1000
 expect voices 1
 midi B0 01 40
 wait 50
-expect v1 64
+# CC1 is the matrix's WHEEL: slot 8 moves POSITION (the knob stays at 0)
+expect v1 0
+expect mod1 64
 midi 80 30 00
 # settings kept across a reboot
 tap SAVE

@@ -121,6 +121,29 @@ static void enter(smg_t *e, uint32_t st)
     e->layer = 0;
 }
 
+static void voice_cap(smg_t *e)          /* over the cap (the overload guard): the quietest let go, fast */
+{
+    uint32_t cap = e->fp.voice_cap ? e->fp.voice_cap : SMG_VOICES, n = 0, v;
+    for (v = 0; v < SMG_VOICES; v++)
+        n += e->voice[v].note >= 0 && e->voice[v].level > 0.002f;
+    while (n > cap) {
+        uint32_t q = SMG_VOICES;
+        float lo = 9.0f;
+        for (v = 0; v < SMG_VOICES; v++)
+            if (e->voice[v].note >= 0 && e->voice[v].level > 0.002f && e->voice[v].level < lo) {
+                lo = e->voice[v].level;
+                q = v;
+            }
+        if (q == SMG_VOICES)
+            break;
+        e->voice[q].gate = 0;
+        e->voice[q].level *= 0.25f;
+        if (e->voice[q].level <= 0.002f)
+            e->voice[q].note = -1;
+        n--;
+    }
+}
+
 static void envelopes(smg_t *e)          /* once a frame: attack linear, release exponential */
 {
     float dt = (float)e->hop / (float)SMG_FS;
@@ -196,10 +219,10 @@ float smg_harm_env(const smg_params_t *p, uint32_t k, float t)   /* attack to 1,
 }
 
 /* a harmonic's level in a layer: PAD's slope, or HARM's shape and envelopes (the voice's time since its note) */
-static float src_amp(const smg_t *e, uint32_t h)
+static float src_amp(const smg_t *e, uint32_t v, uint32_t h)
 {
     const smg_params_t *p = &e->fp;
-    const smg_voice_t *vc = &e->voice[e->v];
+    const smg_voice_t *vc = &e->voice[v];
     float a, t;
     uint32_t k;
     if (p->source != SMG_SRC_HARM)
@@ -275,7 +298,8 @@ static uint32_t bound(const smg_t *e)
         if (e->fp.shimmer >= 0.001f)
             b += pad_units(e, r * 2.0f);
     }
-    return b + layers * (half + CHUNK);
+    b += layers * (half + CHUNK);
+    return b + b / 16u;                  /* (a margin: the painters' steps round up) */
 }
 
 static void frame_begin(smg_t *e)
@@ -290,6 +314,7 @@ static void frame_begin(smg_t *e)
         e->src_ok = 0;
     }
     envelopes(e);
+    voice_cap(e);
     /* the scan: POSITION moved, the scan jumps there; the loop runs from there to the end */
     pos = fm_clampf(e->fp.position, 0.0f, 1.0f);
     if (e->smp.len) {
@@ -299,6 +324,7 @@ static void frame_begin(smg_t *e)
     }
     e->last_position = pos;
     e->units_frame = 0;
+    e->dual = e->par_run && !e->par_failed;
     e->units_bound = bound(e);
     if (e->n_win != e->n)
         enter(e, S_WIN);
@@ -561,38 +587,51 @@ static void spread_step(smg_t *e)
         enter(e, S_CLEAR);
 }
 
-/* the next voice layer to add: e->v the voice, e->layer 0 the note, 1 an octave down, 2 an octave up; 0 = none */
-static int layer_next(smg_t *e)
+/* Painting the voices into the spectrum: a cursor walks voices (vfirst, vfirst + vstep, ...), their layers (0 the note,
+ * 1 an octave down, 2 an octave up) and the bins or harmonics of each, adding into its own spectrum (acc, or acc2 for
+ * the second core's cursor). Two cursors can run at once on two cores: they share nothing they write. */
+static int layer_next(smg_t *e, smg_cur_t *c)
 {
-    for (; e->v < SMG_VOICES; e->v++, e->layer = 0) {
-        smg_voice_t *vc = &e->voice[e->v];
+    for (; c->v < SMG_VOICES; c->v += c->vstep, c->layer = 0) {
+        smg_voice_t *vc = &e->voice[c->v];
         if (vc->note < 0 || vc->level <= 0.0f)
             continue;
-        for (; e->layer < 3u; e->layer++) {
-            float g = e->layer == 0 ? 1.0f : e->layer == 1 ? e->fp.sub : e->fp.shimmer;
+        for (; c->layer < 3u; c->layer++) {
+            float g = c->layer == 0 ? 1.0f : e->fp.no_layers ? 0.0f : c->layer == 1 ? e->fp.sub : e->fp.shimmer;
             if (g < 0.001f)
                 continue;
-            e->lay_gain = g * vc->level;
-            e->lay_ratio = fm_exp2f((float)(vc->note - 60) / 12.0f) * (e->layer == 1 ? 0.5f : e->layer == 2 ? 2.0f : 1.0f);
-            e->lay_norm = 0.0f;
-            e->i = 0;
+            c->gain = g * vc->level;
+            c->ratio = fm_exp2f((float)(vc->note - 60) / 12.0f) * (c->layer == 1 ? 0.5f : c->layer == 2 ? 2.0f : 1.0f);
+            c->norm = 0.0f;
+            c->i = 0;
             return 1;
         }
     }
+    c->done = 1;
     return 0;
 }
-static void layer_done(smg_t *e)
+static void layer_done(smg_t *e, smg_cur_t *c)
 {
-    e->layer++;
-    if (!layer_next(e))
-        enter(e, S_PHASE);
+    c->layer++;
+    layer_next(e, c);
+}
+
+static void cur_start(smg_t *e, smg_cur_t *c, uint32_t first, uint32_t step, float *acc)
+{
+    c->v = first;
+    c->vstep = step;
+    c->layer = 0;
+    c->acc = acc;
+    c->done = 0;
+    c->units = 0;
+    layer_next(e, c);
 }
 
 /* SAMPLE: the source spectrum moved by the note's ratio (bin k reads src at k / ratio) */
-static void voice_sample_step(smg_t *e)
+static void voice_sample_step(smg_t *e, smg_cur_t *c)
 {
-    uint32_t half = e->n / 2u, k = e->i ? e->i : 1u, end = k + CHUNK < half ? k + CHUNK : half;
-    float inv = 1.0f / e->lay_ratio, g = e->lay_gain;
+    uint32_t half = e->n / 2u, k = c->i ? c->i : 1u, end = k + CHUNK < half ? k + CHUNK : half;
+    float inv = 1.0f / c->ratio, g = c->gain, *acc = c->acc;
     for (; k < end; k++) {
         float idx = (float)k * inv, fr;
         uint32_t i0 = (uint32_t)idx;
@@ -601,56 +640,84 @@ static void voice_sample_step(smg_t *e)
             break;
         }
         fr = idx - (float)i0;
-        e->acc[k] += g * (e->src[i0] + fr * (e->src[i0 + 1u] - e->src[i0]));
+        acc[k] += g * (e->src[i0] + fr * (e->src[i0 + 1u] - e->src[i0]));
     }
-    e->units += end - (e->i ? e->i : 1u);
-    e->i = end;
+    c->units += end - (c->i ? c->i : 1u);
+    c->i = end;
     if (end >= half)
-        layer_done(e);
+        layer_done(e, c);
 }
 
-static void voice_pad_step(smg_t *e)   /* PAD and HARM */
+/* exp(-x^2 / 2) for x = 0 .. 3.2 in steps of 1/40 (the bands' shape: a table instead of an exp a bin) */
+#define GT_STEP 40.0f
+static inline float gauss(const float *gt, float x)   /* x >= 0 */
+{
+    float f = x * GT_STEP;
+    uint32_t i = (uint32_t)f;
+    if (i >= SMG_GT - 1u)
+        return 0.0f;
+    f -= (float)i;
+    return gt[i] + f * (gt[i + 1u] - gt[i]);
+}
+
+static void voice_pad_step(smg_t *e, smg_cur_t *c)   /* PAD and HARM: one harmonic a step */
 {
     const smg_params_t *p = &e->fp;
     int harm = p->source == SMG_SRC_HARM;
     float binhz = (float)SMG_FS / (float)e->n, half = (float)(e->n / 2u);
-    float f0 = 261.6256f * e->lay_ratio, bb = harm ? 0.0f : p->inharm * p->inharm * 0.0015f;
+    float f0 = 261.6256f * c->ratio, bb = harm ? 0.0f : p->inharm * p->inharm * 0.0015f;
     float bw = fm_exp2f(fm_clampf(harm ? p->h_band : p->bandwidth, 1.0f, 300.0f) / 1200.0f) - 1.0f;
-    uint32_t h = e->i + 1u, hmax = src_hmax(p);
-    float fh, a, c, sig, amp, inv2s2;
+    uint32_t h = c->i + 1u, hmax = src_hmax(p);
+    float fh, a, cc, sig, amp, isig, *acc = c->acc;
     int32_t lo, hi, k;
     if (h == 1u) {                       /* the voice's norm: its harmonics' power summed, to an RMS of 0.25 */
         float pw = 0.0f;
         uint32_t q;
         for (q = 1; q <= hmax && f0 * (float)q < 0.45f * (float)SMG_FS; q++) {
-            float aq = harm ? smg_harm_level(p, q, e->voice[e->v].vel) : pad_amp(p, q);
+            float aq = harm ? smg_harm_level(p, q, e->voice[c->v].vel) : pad_amp(p, q);
             pw += aq * aq;
         }
-        e->lay_norm = pw > 0.0f ? 0.22f * fm_rsqrtf(pw) : 0.0f;
-        e->units += q;
+        c->norm = pw > 0.0f ? 0.22f * fm_rsqrtf(pw) : 0.0f;
+        c->units += q;
     }
     fh = f0 * (float)h * fm_sqrtf(1.0f + bb * (float)(h * h));
     if (h > hmax || fh >= 0.45f * (float)SMG_FS) {
-        layer_done(e);
+        layer_done(e, c);
         return;
     }
-    a = src_amp(e, h) * e->lay_norm * e->lay_gain;
-    c = fh / binhz;
+    c->i++;
+    a = src_amp(e, c->v, h) * c->norm * c->gain;
+    if (a < 1e-6f) {                     /* -120 dB: not heard, not painted */
+        c->units += 4u;
+        return;
+    }
+    cc = fh / binhz;
     sig = fm_clampf(0.5f * bw * fh / binhz, 0.75f, 96.0f);
     amp = a * fm_rsqrtf(sig * 1.7724539f);   /* a / sqrt(sigma sqrt(pi)): the band's power is a^2 */
-    inv2s2 = 0.5f / (sig * sig);
-    lo = (int32_t)(c - 3.0f * sig);
-    hi = (int32_t)(c + 3.0f * sig) + 1;
+    isig = 1.0f / sig;
+    lo = (int32_t)(cc - 3.0f * sig);
+    hi = (int32_t)(cc + 3.0f * sig) + 1;
     if (lo < 1)
         lo = 1;
     if (hi > (int32_t)half - 1)
         hi = (int32_t)half - 1;
-    for (k = lo; k <= hi; k++) {
-        float d = (float)k - c;
-        e->acc[k] += amp * fm_expf(-d * d * inv2s2);
+    for (k = lo; k <= hi; k++)
+        acc[k] += amp * gauss(e->gt, fm_fabsf((float)k - cc) * isig);
+    c->units += (uint32_t)(hi >= lo ? hi - lo + 1 : 0) + 8u;
+}
+
+/* a cursor's work for up to budget units (the second core runs this for its cursor) */
+static void paint(smg_t *e, smg_cur_t *c, uint32_t budget)
+{
+    uint32_t start = c->units;
+    while (!c->done && c->units - start < budget) {
+        if (e->fp.source == SMG_SRC_PAD || e->fp.source == SMG_SRC_HARM)
+            voice_pad_step(e, c);
+        else if (e->src_ok)
+            voice_sample_step(e, c);
+        else
+            c->done = 1;                 /* no source yet: silence */
     }
-    e->units += (uint32_t)(hi >= lo ? hi - lo + 1 : 0) + 8u;
-    e->i++;
 }
 
 static void clear_step(smg_t *e)
@@ -658,6 +725,9 @@ static void clear_step(smg_t *e)
     uint32_t half = e->n / 2u, k = e->i, end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u;
     for (; k < end; k++)
         e->acc[k] = 0.0f;
+    if (e->dual)
+        for (k = e->i; k < end; k++)
+            e->acc2[k] = 0.0f;
     e->units += end - e->i;
     e->i = end;
     if (end > half) {
@@ -665,8 +735,11 @@ static void clear_step(smg_t *e)
         for (b = 0; b < SMG_DISP; b++)
             e->disp_acc[b] = 0.0f;
         enter(e, S_VOICE);
-        if (!layer_next(e))
-            enter(e, S_PHASE);
+        cur_start(e, &e->c0, 0, e->dual ? 2u : 1u, e->acc);
+        if (e->dual)
+            cur_start(e, &e->c1, 1, 2u, e->acc2);
+        else
+            e->c1.done = 1;
     }
 }
 
@@ -688,7 +761,7 @@ static void phase_step(smg_t *e)
             x[2u * k] = x[2u * k + 1u] = 0.0f;
             continue;
         }
-        m = e->acc[k];
+        m = e->acc[k] + (e->dual ? e->acc2[k] : 0.0f);
         if (m <= 0.0f) {
             x[2u * k] = x[2u * k + 1u] = x[2u * (n - k)] = x[2u * (n - k) + 1u] = 0.0f;
             continue;
@@ -760,16 +833,16 @@ static void step(smg_t *e)
     case S_SPR1:
     case S_SPR2: spread_step(e); break;
     case S_CLEAR: clear_step(e); break;
-    case S_VOICE:
-        if (e->fp.source != SMG_SRC_PAD && e->fp.source != SMG_SRC_HARM) {
-            if (e->src_ok)
-                voice_sample_step(e);
-            else
-                enter(e, S_PHASE);       /* no source yet: silence */
-        } else {
-            voice_pad_step(e);
-        }
+    case S_VOICE: {                      /* core 0's cursor; the second's too when there is no second core */
+        smg_cur_t *c = !e->c0.done ? &e->c0 : &e->c1;
+        uint32_t u = c->units;
+        if (!c->done)
+            paint(e, c, CHUNK);
+        e->units += c->units - u + 1u;
+        if (e->c0.done && e->c1.done)
+            enter(e, S_PHASE);
         break;
+    }
     case S_PHASE: phase_step(e); break;
     case S_SREV:
         if (fft_rev_step(e))
@@ -783,12 +856,36 @@ static void step(smg_t *e)
     }
 }
 
+static void par_job(void *arg)            /* on the second core: its cursor, for the budget it was given */
+{
+    smg_t *e = (smg_t *)arg;
+    paint(e, &e->c1, e->par_budget);
+}
+
 static void work(smg_t *e, uint32_t budget)   /* budget: units; 0xFFFFFFFF = to the end of the frame */
 {
     uint32_t spent = 0;
     while (e->st != S_DONE && spent < budget) {
         e->units = 0;
-        step(e);
+        if (e->st == S_VOICE && e->dual && !e->c1.done && !e->c0.done && e->par_run && !e->par_failed) {
+            /* both cores paint at once: the second its voices into acc2, this one its own into acc */
+            uint32_t u = e->c0.units;
+            e->par_budget = budget - spent;
+            if (e->par_run(par_job, e)) {
+                paint(e, &e->c0, e->par_budget);
+                if (e->par_wait()) {     /* it did not answer: one core from now on (this frame finishes here) */
+                    e->par_failed = 1;
+                }
+                e->par_jobs++;
+            } else {
+                paint(e, &e->c0, e->par_budget);
+            }
+            e->units = e->c0.units - u + 1u;
+            if (e->c0.done && e->c1.done)
+                enter(e, S_PHASE);
+        } else {
+            step(e);
+        }
         spent += e->units;
         e->units_frame += e->units;
     }
@@ -978,6 +1075,8 @@ void smg_defaults(smg_params_t *p)
     p->level = 1.0f;
     p->lp_hz = 0.0f;
     p->lp_reso = 0.0f;
+    p->voice_cap = 0;
+    p->no_layers = 0;
     p->h_count = 24;
     p->h_slope = 1.0f;
     p->h_odd = 0.0f;
@@ -1011,6 +1110,7 @@ void smg_init(smg_t *e, float *ram)
     e->work = m; m += 2u * SMG_NMAX;
     e->src = m; m += SMG_NMAX / 2u + 1u;
     e->acc = m; m += SMG_NMAX / 2u + 1u;
+    e->acc2 = m; m += SMG_NMAX / 2u + 1u;
     e->play[0] = m; m += SMG_NMAX / 2u;
     e->play[1] = m; m += SMG_NMAX / 2u;
     e->tail[0] = m; m += SMG_NMAX / 2u;
@@ -1019,6 +1119,11 @@ void smg_init(smg_t *e, float *ram)
     e->qs = m; m += SMG_NMAX / 4u + 1u;
     e->ring = m;
     e->ad.blk = 0xFFFFFFFFu;
+    for (k = 0; k < SMG_GT; k++) {
+        float x = (float)k / GT_STEP;
+        e->gt[k] = fm_expf(-0.5f * x * x);
+    }
+    e->gt[SMG_GT - 1u] = 0.0f;
     for (k = 0; k <= QN; k++)
         e->qs[k] = fm_sinf(FM_TWO_PI * (float)k / (float)SMG_NMAX);
     e->qs[QN] = 1.0f;
@@ -1032,4 +1137,11 @@ void smg_init(smg_t *e, float *ram)
     e->play_len = e->hop;                /* the first hop is silence while the first frame is made */
     e->fp = e->p;
     frame_begin(e);
+}
+
+void smg_set_par(smg_t *e, int (*run)(void (*fn)(void *), void *arg), int (*wait)(void))
+{
+    e->par_run = run && wait ? run : 0;
+    e->par_wait = run && wait ? wait : 0;
+    e->par_failed = 0;
 }

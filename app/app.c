@@ -24,29 +24,52 @@
 #include "smuga_source.h"                /* the built-in samples (tools/gen_source.py, at build time) */
 
 /* ------------------------------------------------------------- parameters --- */
+#define NLFO 3u                          /* LFO 1-3 */
+#define NMENV 2u                         /* MOD ENV 1-2 */
+#define NMX 8u                           /* the modulation matrix's slots */
 enum { P_STRETCH, P_POSITION, P_SPREAD, P_SIZE, P_BRIGHT, P_BAND, P_INHARM, P_ODD,
        P_ATTACK, P_RELEASE, P_WIDTH, P_LEVEL, P_TILT, P_SUB, P_SHIMMER, P_SHAPE, P_CUTOFF, P_RESO, P_MOTION,
        /* HARM */
        P_H_COUNT, P_H_SLOPE, P_H_ODD, P_H_BAND, P_H_FOCUS, P_H_BOOST, P_H_WIDTH, P_H_VEL,
        P_HENV0,                          /* ENV A-D: TARGET, ATTACK, DECAY, SUSTAIN each */
-       /* modulation: LFO 1, LFO 2 (RATE, SHAPE, DEST, DEPTH), MOD ENV (ATTACK, DECAY, DEST, DEPTH) */
-       P_LFO0 = P_HENV0 + 4 * SMG_HENV, P_MENV = P_LFO0 + 8, NP = P_MENV + 4 };
+       P_LFO0 = P_HENV0 + 4 * SMG_HENV,  /* LFO 1-3: RATE, SHAPE, FADE, SYNC each */
+       P_MENV0 = P_LFO0 + 4 * NLFO,      /* MOD ENV 1-2: ATTACK, DECAY, SUSTAIN, RELEASE each */
+       P_MX0 = P_MENV0 + 4 * NMENV,      /* the matrix: SOURCE, DEST, AMOUNT a slot */
+       P_MSLOT = P_MX0 + 3 * NMX,        /* the slot the MATRIX page shows */
+       P_CORE2,                          /* SETUP: the second core (at the next power-on) */
+       NP };
 #define P_HENV(k, i) (P_HENV0 + 4 * (k) + (i))
 #define P_LFO(k, i) (P_LFO0 + 4 * (k) + (i))
+#define P_MENV(k, i) (P_MENV0 + 4 * (k) + (i))
+#define P_MX(s, i) (P_MX0 + 3 * (s) + (i))
+#define P_NONE 0xFFu                     /* an empty knob on a page */
 enum { LFO_SINE, LFO_TRI, LFO_SAW_UP, LFO_SAW_DOWN, LFO_SQUARE, LFO_SH, LFO_DRIFT, NLFO_SHAPE };
 static const char *const LFO_SHAPE_NAME[NLFO_SHAPE] = {"SINE", "TRIANGLE", "SAW UP", "SAW DOWN", "SQUARE",
                                                       "RANDOM", "DRIFT"};
-/* what a modulator may move: these parameters (their knobs' values, so every mapping holds) */
-static const uint8_t MOD_DEST[] = {0xFF, P_STRETCH, P_POSITION, P_SPREAD, P_TILT, P_SUB, P_SHIMMER, P_WIDTH, P_LEVEL,
-                                   P_BRIGHT, P_BAND, P_INHARM, P_ODD, P_SHAPE, P_CUTOFF, P_RESO, P_H_SLOPE, P_H_ODD,
-                                   P_H_FOCUS, P_H_BOOST, P_H_BAND};
-#define NDEST (sizeof MOD_DEST)
+/* the matrix's sources: the LFOs and envelopes, and what the player does */
+enum { MS_OFF, MS_LFO1, MS_LFO2, MS_LFO3, MS_ENV1, MS_ENV2, MS_VEL, MS_WHEEL, MS_PRESS, MS_RAND, MS_KEY, NMS };
+static const char *const MS_NAME[NMS] = {"OFF", "LFO 1", "LFO 2", "LFO 3", "ENV 1", "ENV 2", "VELOCITY", "WHEEL",
+                                         "PRESSURE", "RANDOM", "KEY"};
+/* ... and what they may move: these parameters (their knobs' values, so every mapping holds) */
+enum { D_OFF, D_STRETCH, D_POSITION, D_SPREAD, D_TILT, D_SUB, D_SHIMMER, D_WIDTH, D_LEVEL, D_BRIGHT, D_BAND,
+       D_INHARM, D_ODD, D_SHAPE, D_CUTOFF, D_RESO, D_SLOPE, D_EVENODD, D_FOCUS, D_BOOST, D_HBAND, D_RATE1, D_RATE2,
+       D_RATE3, NDEST };
+static const uint8_t MOD_DEST[NDEST] = {P_NONE, P_STRETCH, P_POSITION, P_SPREAD, P_TILT, P_SUB, P_SHIMMER, P_WIDTH,
+                                        P_LEVEL, P_BRIGHT, P_BAND, P_INHARM, P_ODD, P_SHAPE, P_CUTOFF, P_RESO,
+                                        P_H_SLOPE, P_H_ODD, P_H_FOCUS, P_H_BOOST, P_H_BAND, P_LFO(0, 0), P_LFO(1, 0),
+                                        P_LFO(2, 0)};
+static const char *const DEST_NAME[NDEST] = {"OFF", "STRETCH", "POSITION", "SPREAD", "TILT", "SUB", "SHIMMER",
+                                             "WIDTH", "LEVEL", "BRIGHT", "BAND", "INHARM", "ODD", "SHAPE", "CUTOFF",
+                                             "RESO", "SLOPE", "EVEN/ODD", "FOCUS", "BOOST", "H BAND", "LFO1 RATE",
+                                             "LFO2 RATE", "LFO3 RATE"};
 typedef struct {
     const char *name;
     uint8_t max;                         /* the values are 0 .. max (127 mostly) */
 } pdef_t;
 #define HENV_DEF {"TARGET", SMG_NHT - 1u}, {"ATTACK", 127}, {"DECAY", 127}, {"SUSTAIN", 127}
-#define LFO_DEF {"RATE", 127}, {"SHAPE", NLFO_SHAPE - 1u}, {"DEST", NDEST - 1u}, {"DEPTH", 127}
+#define LFO_DEF {"RATE", 127}, {"SHAPE", NLFO_SHAPE - 1u}, {"FADE", 127}, {"SYNC", 1}
+#define MENV_DEF {"ATTACK", 127}, {"DECAY", 127}, {"SUSTAIN", 127}, {"RELEASE", 127}
+#define MX_DEF {"SOURCE", NMS - 1u}, {"DEST", NDEST - 1u}, {"AMOUNT", 127}
 static const pdef_t PDEF[NP] = {
     {"STRETCH", 127}, {"POSITION", 127}, {"SPREAD", 127}, {"SIZE", SMG_NSIZE - 1u},
     {"BRIGHT", 127}, {"BAND", 127}, {"INHARM", 127}, {"ODD", 127},
@@ -56,16 +79,21 @@ static const pdef_t PDEF[NP] = {
     {"HARMONICS", SMG_HARM_MAX - 1u}, {"SLOPE", 127}, {"EVEN/ODD", 127}, {"H BAND", 127},
     {"FOCUS", 31}, {"BOOST", 127}, {"FOCUS W", 127}, {"VEL>TONE", 127},
     HENV_DEF, HENV_DEF, HENV_DEF, HENV_DEF,
-    LFO_DEF, LFO_DEF,
-    {"ATTACK", 127}, {"DECAY", 127}, {"DEST", NDEST - 1u}, {"DEPTH", 127},
+    LFO_DEF, LFO_DEF, LFO_DEF,
+    MENV_DEF, MENV_DEF,
+    MX_DEF, MX_DEF, MX_DEF, MX_DEF, MX_DEF, MX_DEF, MX_DEF, MX_DEF,
+    {"SLOT", NMX - 1u}, {"2ND CORE", 1},
 };
 /* the factory values; a preset changes some of them */
 static const uint8_t PDEFAULT[NP] = {
     52, 0, 0, 3, 64, 50, 0, 0, 80, 90, 110, 96, 64, 0, 0, 0, 80, 40, 30,
     23, 40, 64, 30, 3, 64, 30, 64,
     0, 50, 80, 64, 0, 50, 80, 64, 0, 50, 80, 64, 0, 50, 80, 64,
-    40, LFO_SINE, 0, 96, 60, LFO_DRIFT, 0, 96,
-    40, 80, 0, 96,
+    40, LFO_SINE, 0, 0, 60, LFO_DRIFT, 0, 0, 20, LFO_TRI, 0, 0,     /* LFO 1-3 */
+    40, 80, 64, 80, 90, 100, 127, 100,                              /* MOD ENV 1-2 */
+    0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64,
+    MS_WHEEL, D_POSITION, 127,                                      /* slot 8: the mod wheel scans the sample */
+    0, 0,
 };
 
 /* the sources: PAD, VA, HARM, the built-in samples (smg_builtin[], SLOT_SMP0 on), USER */
@@ -80,9 +108,10 @@ static const char *slot_name(uint32_t s)
     return s == SLOT_PAD ? "PAD" : s == SLOT_VA ? "VA" : s == SLOT_HARM ? "HARM" :
            s < SLOT_USER ? smg_builtin[s - SLOT_SMP0].name : "USER";
 }
-enum { PG_SOURCE, PG_TONE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, PG_SPACE, PG_LFO1, PG_LFO2, PG_MENV, PG_COLOR, NPAGE };
+enum { PG_SOURCE, PG_TONE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, PG_SPACE, PG_LFO1, PG_LFO2, PG_LFO3, PG_MENV1,
+       PG_MENV2, PG_MATRIX, PG_COLOR, PG_SETUP, NPAGE };
 static const char *const PAGE_NAME[NPAGE] = {"SOURCE", "TONE", "ENV A", "ENV B", "ENV C", "ENV D", "SPACE", "LFO 1",
-                                             "LFO 2", "MOD ENV", "COLOR"};
+                                             "LFO 2", "LFO 3", "MOD ENV 1", "MOD ENV 2", "MATRIX", "COLOR", "SETUP"};
 static const uint8_t PAGE_SAMPLE[4] = {P_STRETCH, P_POSITION, P_SPREAD, P_SIZE};
 static const uint8_t PAGE_PAD[4] = {P_BRIGHT, P_BAND, P_INHARM, P_ODD};
 static const uint8_t PAGE_VA[4] = {P_SHAPE, P_CUTOFF, P_RESO, P_MOTION};
@@ -94,9 +123,8 @@ static const uint8_t PAGE_COLOR[4] = {P_TILT, P_SUB, P_SHIMMER, P_SIZE};
 typedef struct {
     const char *name;
     uint8_t slot;
-    uint8_t ov[24][2];                   /* {parameter + 1, value}, then zeros */
+    uint8_t ov[40][2];                   /* {parameter + 1, value}, then zeros */
 } preset_t;
-/*                          STR POS SPR SZ  BRI BND INH ODD ATK REL WID LEV TLT SUB SHM SHP CUT RES MOT */
 /* a preset: its source, and the parameters it changes from PDEFAULT (O(parameter, value); index + 1, so a
  * zero ends the list) */
 #define O(p, v) {(uint8_t)((p) + 1), (uint8_t)(v)}
@@ -110,19 +138,44 @@ static const preset_t PRESETS[] = {
     {"RESO SWEEP", SLOT_VA, {O(P_SIZE, 2), O(P_ATTACK, 60), O(P_RELEASE, 85), O(P_WIDTH, 100), O(P_LEVEL, 90), O(P_SHAPE, 64), O(P_CUTOFF, 60), O(P_RESO, 90), O(P_MOTION, 90)}},
     {"HARM BLOOM", SLOT_HARM, {O(P_H_COUNT, 31), O(P_H_SLOPE, 30), O(P_HENV(0, 0), SMG_HT_HIGH), O(P_HENV(0, 1), 105),
                                O(P_HENV(0, 3), 127), O(P_HENV(1, 0), 1), O(P_HENV(1, 1), 20), O(P_HENV(1, 2), 95),
-                               O(P_HENV(1, 3), 70), O(P_LFO(0, 2), 4), O(P_LFO(0, 3), 80), O(P_ATTACK, 70)}},
+                               O(P_HENV(1, 3), 70), O(P_ATTACK, 70),
+                               O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_TILT), O(P_MX(0, 2), 100),
+                               O(P_MX(1, 0), MS_ENV2), O(P_MX(1, 1), D_SLOPE), O(P_MX(1, 2), 20)}},
     {"HARM BELL", SLOT_HARM, {O(P_H_COUNT, 23), O(P_H_SLOPE, 25), O(P_H_FOCUS, 4), O(P_H_BOOST, 100), O(P_H_WIDTH, 15),
                               O(P_HENV(0, 0), SMG_HT_HIGH), O(P_HENV(0, 1), 5), O(P_HENV(0, 2), 70), O(P_HENV(0, 3), 0),
                               O(P_HENV(1, 0), 3), O(P_HENV(1, 1), 5), O(P_HENV(1, 2), 90), O(P_HENV(1, 3), 20),
                               O(P_ATTACK, 10), O(P_RELEASE, 100)}},
     {"HARM VOWELS", SLOT_HARM, {O(P_H_COUNT, 40), O(P_H_SLOPE, 35), O(P_H_FOCUS, 6), O(P_H_BOOST, 110),
-                                O(P_H_WIDTH, 25), O(P_LFO(0, 0), 25), O(P_LFO(0, 1), LFO_TRI), O(P_LFO(0, 2), 18),
-                                O(P_LFO(0, 3), 110), O(P_LFO(1, 2), 19), O(P_LFO(1, 3), 84)}},
+                                O(P_H_WIDTH, 25), O(P_LFO(0, 0), 25), O(P_LFO(0, 1), LFO_TRI),
+                                O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_FOCUS), O(P_MX(0, 2), 110),
+                                O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_BOOST), O(P_MX(1, 2), 84),
+                                O(P_MX(2, 0), MS_LFO3), O(P_MX(2, 1), D_RATE1), O(P_MX(2, 2), 90)}},
     {"HARM HOLLOW", SLOT_HARM, {O(P_H_COUNT, 31), O(P_H_SLOPE, 45), O(P_H_ODD, 127), O(P_H_BAND, 50),
                                 O(P_HENV(0, 0), SMG_HT_HIGH), O(P_HENV(0, 1), 110), O(P_HENV(0, 3), 100), O(P_SUB, 40)}},
     {"DRIFT FOG", SLOT_CHOIR, {O(P_STRETCH, 80), O(P_SPREAD, 40), O(P_LFO(0, 0), 10), O(P_LFO(0, 1), LFO_DRIFT),
-                               O(P_LFO(0, 2), 2), O(P_LFO(0, 3), 100), O(P_LFO(1, 0), 30), O(P_LFO(1, 2), 4),
-                               O(P_LFO(1, 3), 90)}},
+                               O(P_LFO(1, 0), 30), O(P_LFO(1, 1), LFO_SINE),
+                               O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_POSITION), O(P_MX(0, 2), 100),
+                               O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_TILT), O(P_MX(1, 2), 90)}},
+    {"EVOLVER", SLOT_HARM, {O(P_H_COUNT, 47), O(P_H_SLOPE, 30), O(P_H_FOCUS, 7), O(P_H_BOOST, 100), O(P_H_WIDTH, 20),
+                            O(P_H_BAND, 40), O(P_ATTACK, 85), O(P_RELEASE, 105), O(P_WIDTH, 120),
+                            O(P_LFO(0, 0), 18), O(P_LFO(0, 1), LFO_TRI), O(P_LFO(0, 2), 80),
+                            O(P_LFO(1, 0), 12), O(P_LFO(1, 1), LFO_DRIFT), O(P_LFO(2, 0), 70), O(P_LFO(2, 1), LFO_SINE),
+                            O(P_MENV(0, 0), 95), O(P_MENV(0, 1), 110), O(P_MENV(0, 2), 40),
+                            O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_FOCUS), O(P_MX(0, 2), 120),
+                            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_SLOPE), O(P_MX(1, 2), 90),
+                            O(P_MX(2, 0), MS_ENV1), O(P_MX(2, 1), D_SHIMMER), O(P_MX(2, 2), 110),
+                            O(P_MX(3, 0), MS_VEL), O(P_MX(3, 1), D_BOOST), O(P_MX(3, 2), 90),
+                            O(P_MX(4, 0), MS_LFO3), O(P_MX(4, 1), D_WIDTH), O(P_MX(4, 2), 84),
+                            O(P_MX(5, 0), MS_LFO2), O(P_MX(5, 1), D_RATE1), O(P_MX(5, 2), 100)}},
+    {"BREATHING GLASS", SLOT_GLASS, {O(P_STRETCH, 90), O(P_ATTACK, 80), O(P_RELEASE, 100), O(P_WIDTH, 120),
+                                     O(P_LFO(0, 0), 15), O(P_LFO(0, 1), LFO_SINE), O(P_LFO(0, 2), 90),
+                                     O(P_LFO(1, 0), 35), O(P_LFO(1, 1), LFO_SH),
+                                     O(P_MENV(1, 0), 110), O(P_MENV(1, 1), 115), O(P_MENV(1, 2), 30),
+                                     O(P_MX(0, 0), MS_ENV2), O(P_MX(0, 1), D_SPREAD), O(P_MX(0, 2), 120),
+                                     O(P_MX(1, 0), MS_LFO1), O(P_MX(1, 1), D_POSITION), O(P_MX(1, 2), 100),
+                                     O(P_MX(2, 0), MS_PRESS), O(P_MX(2, 1), D_SHIMMER), O(P_MX(2, 2), 127),
+                                     O(P_MX(3, 0), MS_LFO2), O(P_MX(3, 1), D_TILT), O(P_MX(3, 2), 76),
+                                     O(P_MX(4, 0), MS_RAND), O(P_MX(4, 1), D_POSITION), O(P_MX(4, 2), 90)}},
     {"GLASS RAIN", SLOT_GLASS, {O(P_STRETCH, 60), O(P_SPREAD, 10), O(P_ATTACK, 70), O(P_RELEASE, 96), O(P_WIDTH, 120), O(P_LEVEL, 90), O(P_TILT, 70), O(P_SHIMMER, 40)}},
     {"HARP DREAM", SLOT_STRING, {O(P_STRETCH, 45), O(P_ATTACK, 60), O(P_WIDTH, 120), O(P_SUB, 20)}},
     {"WIND TUNNEL", SLOT_WIND, {O(P_STRETCH, 70), O(P_SPREAD, 50), O(P_ATTACK, 90), O(P_RELEASE, 96), O(P_WIDTH, 127), O(P_LEVEL, 100), O(P_TILT, 50)}},
@@ -138,7 +191,7 @@ static const preset_t PRESETS[] = {
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
 
-#define SET_MAGIC 0x33474D53u            /* "SMG3": the settings record; another magic loads a preset */
+#define SET_MAGIC 0x31544541u            /* "AET1": the settings record; another magic loads a preset */
 typedef struct {
     uint32_t magic;
     uint8_t v[NP];
@@ -169,17 +222,25 @@ static float bipolar(float v) { return fm_clampf((v - 64.0f) / 63.0f, -1.0f, 1.0
 static float lfo_hz(float v) { return 0.01f * fm_exp2f(v * (10.0f / 127.0f)); }       /* 0.01 .. 10 Hz */
 
 /* ---------------------------------------------------------------- modulation --- */
-/* two LFOs and a modulation envelope, each moving one parameter (DEST) by DEPTH (-100 .. +100 % of its range),
- * worked out once an audio block. The values they give are what the engine plays; the knobs keep theirs. */
+/* The modulation matrix: eight slots, each a source (an LFO, an envelope, what the player does), a destination
+ * (one of NDEST parameters) and an amount (-100 .. +100 % of that parameter's range). Slots add up: one source may
+ * move many parameters, and one parameter take many sources. Worked out once an audio block, in the audio
+ * interrupt; the knobs keep their values, the engine plays mod_v. */
 static float mod_v[NP];                  /* every parameter's value as played: the knob's plus its modulation */
+static float msrc[NMS];                  /* the sources now: LFOs -1 .. 1, envelopes 0 .. 1, ... */
 static struct {
-    float ph, out, held, drift, drift_to;
+    float ph, out, held, drift, drift_to, since;
     uint32_t rng;
-} lfo[2] = {{0, 0, 0, 0, 0, 0x1234567u}, {0.25f, 0, 0, 0, 0, 0x89ABCDEu}};
-static float menv;                       /* the modulation envelope, 0 .. 1 */
-static uint8_t menv_up;                  /* rising */
-static volatile uint32_t menv_trig;      /* note-ons (main loop and MIDI): each starts the envelope again */
-static uint32_t menv_seen;
+} lfo[NLFO] = {{0, 0, 0, 0, 0, 0, 0x1234567u}, {0.25f, 0, 0, 0, 0, 0, 0x89ABCDEu}, {0.5f, 0, 0, 0, 0, 0, 0x2468ACEu}};
+static struct {
+    float level;
+    uint8_t stage;                       /* 0 released, 1 attack, 2 decay and sustain */
+} menv[NMENV];
+static volatile uint32_t note_trig;      /* note-ons (keys and MIDI): the envelopes start again, SYNC LFOs too */
+static uint32_t note_seen;
+static volatile float last_vel = 0.8f, last_key, wheel, key_press, midi_press;
+static float note_rand;
+static uint32_t rand_rng = 0x5EEDu;
 
 static float rnd_unit(uint32_t *r)       /* -1 .. 1 */
 {
@@ -189,13 +250,54 @@ static float rnd_unit(uint32_t *r)       /* -1 .. 1 */
     return (float)(*r >> 8) / 8388608.0f - 1.0f;
 }
 
+static void note_heard(uint32_t note, uint32_t vel)   /* a note-on, for VELOCITY, KEY and the envelopes */
+{
+    last_vel = (float)vel / 127.0f;
+    last_key = fm_clampf(((float)note - 60.0f) / 24.0f, -1.0f, 1.0f);
+    note_trig++;
+}
+
+static float lfo_wave(uint32_t shape, float ph, uint32_t k)
+{
+    switch (shape) {
+    case LFO_SINE: return fm_sinf(FM_TWO_PI * ph);
+    case LFO_TRI: return ph < 0.5f ? 4.0f * ph - 1.0f : 3.0f - 4.0f * ph;
+    case LFO_SAW_UP: return 2.0f * ph - 1.0f;
+    case LFO_SAW_DOWN: return 1.0f - 2.0f * ph;
+    case LFO_SQUARE: return ph < 0.5f ? 1.0f : -1.0f;
+    case LFO_SH: return lfo[k].held;
+    default: return lfo[k].drift;
+    }
+}
+
+static int any_gate(void)                /* a note held (keys, HOLD, MIDI): the envelopes' gate */
+{
+    uint32_t v;
+    for (v = 0; v < SMG_VOICES; v++)
+        if (eng.voice[v].note >= 0 && eng.voice[v].gate)
+            return 1;
+    return 0;
+}
+
 static void mod_step(float dt)           /* audio interrupt: dt seconds since the last */
 {
-    uint32_t k;
-    for (k = 0; k < 2u; k++) {
+    uint32_t k, gate = (uint32_t)any_gate(), trig = note_trig != note_seen;
+    note_seen = note_trig;
+    if (trig)
+        note_rand = rnd_unit(&rand_rng);
+    for (k = 0; k < NLFO; k++) {
         const uint8_t *v = &set.v[P_LFO(k, 0)];
-        float ph = lfo[k].ph + lfo_hz(v[0]) * dt;
-        int wrapped = ph >= 1.0f;
+        float ph, fade;
+        int wrapped;
+        if (trig && v[3]) {              /* SYNC: from the start at each note */
+            lfo[k].ph = 0.0f;
+            lfo[k].held = rnd_unit(&lfo[k].rng);
+        }
+        if (trig)
+            lfo[k].since = 0.0f;
+        lfo[k].since += dt;
+        ph = lfo[k].ph + lfo_hz(mod_v[P_LFO(k, 0)]) * dt;   /* (its RATE as modulated: last block's) */
+        wrapped = ph >= 1.0f;
         if (wrapped)
             ph -= (float)(uint32_t)ph;
         lfo[k].ph = ph;
@@ -203,42 +305,65 @@ static void mod_step(float dt)           /* audio interrupt: dt seconds since th
             lfo[k].held = rnd_unit(&lfo[k].rng);
             lfo[k].drift_to = rnd_unit(&lfo[k].rng);
         }
-        switch (v[1]) {
-        case LFO_SINE: lfo[k].out = fm_sinf(FM_TWO_PI * ph); break;
-        case LFO_TRI: lfo[k].out = ph < 0.5f ? 4.0f * ph - 1.0f : 3.0f - 4.0f * ph; break;
-        case LFO_SAW_UP: lfo[k].out = 2.0f * ph - 1.0f; break;
-        case LFO_SAW_DOWN: lfo[k].out = 1.0f - 2.0f * ph; break;
-        case LFO_SQUARE: lfo[k].out = ph < 0.5f ? 1.0f : -1.0f; break;
-        case LFO_SH: lfo[k].out = lfo[k].held; break;
-        default:                         /* DRIFT: towards a new random point each cycle, smoothly */
-            lfo[k].drift += (lfo[k].drift_to - lfo[k].drift) * fm_minf(1.0f, dt * lfo_hz(v[0]) * 4.0f);
-            lfo[k].out = lfo[k].drift;
-            break;
+        lfo[k].drift += (lfo[k].drift_to - lfo[k].drift) * fm_minf(1.0f, dt * lfo_hz(mod_v[P_LFO(k, 0)]) * 4.0f);
+        fade = v[2] ? fm_minf(1.0f, lfo[k].since / attack_of((float)v[2])) : 1.0f;   /* FADE: in after each note */
+        lfo[k].out = lfo_wave(v[1], ph, k) * fade;
+        msrc[MS_LFO1 + k] = lfo[k].out;
+    }
+    for (k = 0; k < NMENV; k++) {        /* ADSR, gated by the notes held; each note-on starts it again */
+        const uint8_t *v = &set.v[P_MENV(k, 0)];
+        float sus = unit((float)v[2]);
+        if (trig)
+            menv[k].stage = 1;
+        if (!gate)
+            menv[k].stage = 0;
+        if (menv[k].stage == 1) {
+            menv[k].level += dt / attack_of((float)v[0]);
+            if (menv[k].level >= 1.0f) {
+                menv[k].level = 1.0f;
+                menv[k].stage = 2;
+            }
+        } else if (menv[k].stage == 2) {
+            menv[k].level -= dt / release_of((float)v[1]) * (1.0f - sus);
+            if (menv[k].level < sus)
+                menv[k].level = sus;
+        } else {
+            menv[k].level -= dt / release_of((float)v[3]);
+            if (menv[k].level < 0.0f)
+                menv[k].level = 0.0f;
         }
+        msrc[MS_ENV1 + k] = menv[k].level;
     }
-    if (menv_trig != menv_seen) {        /* a note: the envelope starts again from where it is */
-        menv_seen = menv_trig;
-        menv_up = 1;
-    }
-    if (menv_up) {
-        menv += dt / attack_of(set.v[P_MENV]);
-        if (menv >= 1.0f) {
-            menv = 1.0f;
-            menv_up = 0;
-        }
-    } else {
-        menv -= dt / release_of(set.v[P_MENV + 1]);
-        if (menv < 0.0f)
-            menv = 0.0f;
-    }
+    msrc[MS_OFF] = 0.0f;
+    msrc[MS_VEL] = last_vel;
+    msrc[MS_WHEEL] = wheel;
+    msrc[MS_PRESS] = fm_maxf(key_press, midi_press);
+    msrc[MS_RAND] = note_rand;
+    msrc[MS_KEY] = last_key;
     for (k = 0; k < NP; k++)
         mod_v[k] = (float)set.v[k];
-    for (k = 0; k < 3u; k++) {           /* LFO 1, LFO 2, MOD ENV */
-        const uint8_t *v = k < 2u ? &set.v[P_LFO(k, 0)] : &set.v[P_MENV];
-        uint32_t d = v[2] < NDEST ? MOD_DEST[v[2]] : 0xFFu;
-        float amt = bipolar(v[3]) * (k < 2u ? lfo[k].out : menv);
-        if (d < NP)
-            mod_v[d] = fm_clampf(mod_v[d] + amt * (float)PDEF[d].max, 0.0f, (float)PDEF[d].max);
+    for (k = 0; k < NMX; k++) {
+        const uint8_t *m = &set.v[P_MX(k, 0)];
+        uint32_t d = m[1] < NDEST ? MOD_DEST[m[1]] : P_NONE;
+        if (m[0] && m[0] < NMS && d < NP)
+            mod_v[d] += bipolar((float)m[2]) * msrc[m[0]] * (float)PDEF[d].max;
+    }
+    for (k = 0; k < NP; k++)
+        mod_v[k] = fm_clampf(mod_v[k], 0.0f, (float)PDEF[k].max);
+}
+
+/* the overload guard: the platform tells (app_overload) when a block took over 90 % of its time; each time (at most
+ * every 250 ms) one step more is shed: SUB and SHIMMER first, then voices, down to two; three quiet seconds give
+ * one step back (app_frame) */
+static volatile uint8_t shed;
+static volatile uint32_t shed_at;
+static const uint8_t SHED_CAP[7] = {0, 0, 6, 5, 4, 3, 2};
+void app_overload(void)
+{
+    uint32_t now = plat_ms();
+    if (shed < 6u && now - shed_at > 250u) {
+        shed++;
+        shed_at = now;
     }
 }
 
@@ -274,6 +399,8 @@ static void map_params(void)
     p->shimmer = unit(v[P_SHIMMER]);
     if (va_on)                           /* VA: its harmonics softened into narrow bands, as PADsynth's are */
         p->spread = 0.22f;
+    p->voice_cap = SHED_CAP[shed];
+    p->no_layers = shed > 0u;
     p->h_count = (uint8_t)(set.v[P_H_COUNT] + 1u);
     p->h_slope = 3.0f * unit(v[P_H_SLOPE]);
     p->h_odd = bipolar(v[P_H_ODD]);
@@ -345,7 +472,7 @@ static void source_set(uint32_t slot)    /* audio interrupt: a sample source's s
 }
 
 /* ---------------------------------------------------------------- MIDI in --- */
-static volatile int16_t cc_in[3] = {-1, -1, -1};   /* CC1, CC71, CC74 from the interrupt, for the main loop */
+static volatile int16_t cc_in[3] = {-1, -1, -1};   /* (unused), CC71, CC74 from the interrupt, for the main loop */
 static uint32_t sus_on, sus_notes[4];    /* CC64: note-offs held back, by note */
 static volatile uint32_t midi_notes_in;
 static void midi_in(void)                /* audio interrupt */
@@ -356,7 +483,7 @@ static void midi_in(void)                /* audio interrupt */
         uint32_t st = (pkt >> 8) & 0xFFu, d1 = (pkt >> 16) & 0x7Fu, d2 = pkt >> 24 & 0x7Fu;
         if ((st & 0xF0u) == 0x90u && d2) {
             smg_note_on(&eng, (int32_t)d1, (float)d2 / 127.0f);
-            menv_trig++;
+            note_heard(d1, d2);
             sus_notes[d1 >> 5] &= ~(1u << (d1 & 31u));
             midi_notes_in++;
         } else if ((st & 0xF0u) == 0x80u || (st & 0xF0u) == 0x90u) {
@@ -374,8 +501,8 @@ static void midi_in(void)                /* audio interrupt */
                             smg_note_off(&eng, (int32_t)k);
                     sus_notes[0] = sus_notes[1] = sus_notes[2] = sus_notes[3] = 0;
                 }
-            } else if (d1 == 1u) {
-                cc_in[0] = (int16_t)d2;
+            } else if (d1 == 1u) {           /* the mod wheel: the matrix's WHEEL */
+                wheel = (float)d2 / 127.0f;
             } else if (d1 == 71u) {
                 cc_in[1] = (int16_t)d2;
             } else if (d1 == 74u) {
@@ -383,6 +510,10 @@ static void midi_in(void)                /* audio interrupt */
             } else if (d1 == 120u || d1 == 123u) {   /* all sound off, all notes off */
                 smg_all_off(&eng);
             }
+        } else if ((st & 0xF0u) == 0xD0u) {  /* channel pressure: the matrix's PRESSURE */
+            midi_press = (float)d1 / 127.0f;
+        } else if ((st & 0xF0u) == 0xA0u) {  /* poly pressure: the strongest key's */
+            midi_press = (float)d2 / 127.0f;
         }
     }
 }
@@ -438,10 +569,12 @@ static void preset_load(uint32_t i)
 {
     uint32_t k;
     const preset_t *p = &PRESETS[i % NPRESET];
+    uint8_t core2 = set.v[P_CORE2];      /* (SETUP's choices are not a preset's) */
     for (k = 0; k < NP; k++)
         set.v[k] = PDEFAULT[k];
-    for (k = 0; k < 24u && p->ov[k][0]; k++)
+    for (k = 0; k < 40u && p->ov[k][0]; k++)
         set.v[p->ov[k][0] - 1u] = p->ov[k][1];
+    set.v[P_CORE2] = core2;
     set.preset = (uint8_t)(i % NPRESET);
     set.slot = p->slot;
 }
@@ -457,6 +590,27 @@ static int settings_ok(void)
     return 1;
 }
 
+/* ------------------------------------------------------------- second core --- */
+static uint8_t core2_wanted_at_boot;     /* SETUP's choice when this power-on started */
+#ifndef PLAT_HOST
+#include "hw/core1.c"                    /* (vendored: the register access of the second core) */
+static int core2_running(void) { return c1_state == C1_RUNNING; }
+static const char *core2_state_text(void)
+{
+    static const char *const T[] = {"OFF", "RUNNING", "DID NOT START", "GIVEN UP: ONE CORE", "BARRED UNTIL POWER-OFF"};
+    return T[c1_state < 5u ? c1_state : 0u];
+}
+void app_cstart(void) { core1_halt(); }   /* registers only: a second core a reset left running, held */
+void app_fault(const fm1_crash_t *c)
+{
+    (void)c;
+    core1_give_up(C1_GAVE_UP);           /* one core until power-off, whichever crashed */
+}
+#else
+static int core2_running(void) { return 0; }
+static const char *core2_state_text(void) { return set.v[P_CORE2] ? "NOT IN THE EMULATOR" : "OFF"; }
+#endif
+
 void app_init(void)
 {
     if (plat_store_load(OBJ_SETTINGS, &set, sizeof set) != (int)sizeof set || !settings_ok()) {
@@ -467,6 +621,11 @@ void app_init(void)
     if (set.slot == SLOT_USER && !user_sample())
         set.slot = SLOT_CHOIR;
     smg_init(&eng, eng_ram);
+    core2_wanted_at_boot = set.v[P_CORE2];
+#ifndef PLAT_HOST
+    if (set.v[P_CORE2] && core1_start() == 0)   /* (before the audio: core 1 starts at power-on only) */
+        smg_set_par(&eng, core1_run, core1_wait);
+#endif
     va_init(&va);
     mod_step(0.0f);
     map_params();
@@ -808,23 +967,9 @@ static void value_text(uint32_t p, char *b)
                 tenths_text(i == 1u ? attack_of((float)v) : release_of((float)v), b);
                 text_cat(b, " S");
             }
-        } else if (p >= P_LFO0) {                   /* LFO 1, LFO 2, MOD ENV */
+        } else if (p >= P_LFO0 && p < P_MENV0) {    /* LFO 1-3: RATE, SHAPE, FADE, SYNC */
             uint32_t i = (p - P_LFO0) % 4u;
-            int menv_page = p >= P_MENV;
-            if (i == 2u) {
-                text_cat(b, v == 0u || v >= NDEST ? "OFF" : PDEF[MOD_DEST[v]].name);
-            } else if (i == 3u) {
-                int32_t pc = (int32_t)(bipolar((float)v) * 100.0f + (v >= 64u ? 0.5f : -0.5f));
-                if (pc > 0)
-                    text_cat(b, "+");
-                int_text(pc, b + (pc > 0));
-                text_cat(b, "%");
-            } else if (menv_page) {
-                tenths_text(i == 0u ? attack_of((float)v) : release_of((float)v), b);
-                text_cat(b, " S");
-            } else if (i == 1u) {
-                text_cat(b, LFO_SHAPE_NAME[v < NLFO_SHAPE ? v : 0u]);
-            } else {
+            if (i == 0u) {
                 float hz = lfo_hz((float)v);
                 if (hz < 1.0f) {
                     tenths_text(1.0f / hz, b);
@@ -833,7 +978,44 @@ static void value_text(uint32_t p, char *b)
                     tenths_text(hz, b);
                     text_cat(b, " HZ");
                 }
+            } else if (i == 1u) {
+                text_cat(b, LFO_SHAPE_NAME[v < NLFO_SHAPE ? v : 0u]);
+            } else if (i == 2u) {
+                if (v == 0u)
+                    text_cat(b, "OFF");
+                else {
+                    tenths_text(attack_of((float)v), b);
+                    text_cat(b, " S");
+                }
+            } else {
+                text_cat(b, v ? "KEY" : "FREE");
             }
+        } else if (p >= P_MENV0 && p < P_MX0) {    /* MOD ENV 1-2: ATTACK, DECAY, SUSTAIN, RELEASE */
+            uint32_t i = (p - P_MENV0) % 4u;
+            if (i == 2u) {
+                int_text((int32_t)(unit((float)v) * 100.0f + 0.5f), b);
+                text_cat(b, "%");
+            } else {
+                tenths_text(i == 0u ? attack_of((float)v) : release_of((float)v), b);
+                text_cat(b, " S");
+            }
+        } else if (p >= P_MX0 && p < P_MSLOT) {     /* the matrix: SOURCE, DEST, AMOUNT */
+            uint32_t i = (p - P_MX0) % 3u;
+            if (i == 0u)
+                text_cat(b, MS_NAME[v < NMS ? v : 0u]);
+            else if (i == 1u)
+                text_cat(b, DEST_NAME[v < NDEST ? v : 0u]);
+            else {
+                int32_t pc = (int32_t)(bipolar((float)v) * 100.0f + (v >= 64u ? 0.5f : -0.5f));
+                if (pc > 0)
+                    text_cat(b, "+");
+                int_text(pc, b + (pc > 0));
+                text_cat(b, "%");
+            }
+        } else if (p == P_MSLOT) {
+            int_text((int32_t)v + 1, b);
+        } else if (p == P_CORE2) {
+            text_cat(b, v ? "ON" : "OFF");
         } else {
             int_text((int32_t)(unit((float)v) * 100.0f + 0.5f), b);
             text_cat(b, "%");
@@ -846,6 +1028,7 @@ static int page_ok(uint32_t pg)          /* TONE and ENV A-D are HARM's */
 {
     return set.slot == SLOT_HARM || pg < PG_TONE || pg > PG_ENVD;
 }
+static int page_is_mod(uint32_t pg) { return pg >= PG_LFO1 && pg <= PG_MATRIX; }
 
 static const uint8_t *page_params(void)
 {
@@ -859,9 +1042,22 @@ static const uint8_t *page_params(void)
         for (k = 0; k < 4u; k++)
             pp[k] = (uint8_t)P_HENV(ui.page - PG_ENVA, k);
         return pp;
-    case PG_LFO1: case PG_LFO2: case PG_MENV:
+    case PG_LFO1: case PG_LFO2: case PG_LFO3:
         for (k = 0; k < 4u; k++)
-            pp[k] = (uint8_t)(ui.page == PG_MENV ? P_MENV + k : P_LFO(ui.page - PG_LFO1, k));
+            pp[k] = (uint8_t)P_LFO(ui.page - PG_LFO1, k);
+        return pp;
+    case PG_MENV1: case PG_MENV2:
+        for (k = 0; k < 4u; k++)
+            pp[k] = (uint8_t)P_MENV(ui.page - PG_MENV1, k);
+        return pp;
+    case PG_MATRIX:                      /* SLOT, then that slot's SOURCE, DEST, AMOUNT */
+        pp[0] = P_MSLOT;
+        for (k = 0; k < 3u; k++)
+            pp[k + 1u] = (uint8_t)P_MX(set.v[P_MSLOT] % NMX, k);
+        return pp;
+    case PG_SETUP:
+        pp[0] = P_CORE2;
+        pp[1] = pp[2] = pp[3] = P_NONE;
         return pp;
     default:
         return set.slot == SLOT_PAD ? PAGE_PAD : set.slot == SLOT_VA ? PAGE_VA : set.slot == SLOT_HARM ? PAGE_HARM :
@@ -905,7 +1101,7 @@ static void speak(void)                  /* a screen reader that has just starte
         text_cat(t, PRESETS[set.preset].name);
         text_cat(t, ". ");
         text_cat(t, PAGE_NAME[ui.page]);
-        for (k = 0; k < 4u; k++) {
+        for (k = 0; k < 4u && pp[k] != P_NONE; k++) {
             text_cat(t, ". ");
             text_cat(t, PDEF[pp[k]].name);
             text_cat(t, " ");
@@ -922,6 +1118,8 @@ static void param_say(uint32_t p)
     char v[16];
     value_text(p, v);
     app_say(PDEF[p].name, v);
+    if (p == P_CORE2)                    /* (it starts only at power-on) */
+        app_say(v[1] == 'N' ? "2ND CORE ON" : "2ND CORE OFF", "SAVE, THEN RESTART");
 }
 
 static void param_turn(uint32_t p, int32_t d)
@@ -1033,7 +1231,7 @@ static void input(void)
                 ui.latched[note >> 5] |= 1u << (note & 31u);
             }
             ev_push(Q_ON, note, v ? v : 100u);
-            menv_trig++;
+            note_heard(note, v ? v : 100u);
             plat_midi_send(0x09u | 0x90u << 8 | note << 16 | (v ? v : 100u) << 24, TO_USB);
         } else if (!(keys & bit) && (ui.keys & bit) && !hold) {
             ev_push(Q_OFF, note, 0);
@@ -1055,7 +1253,9 @@ static void input(void)
             else
                 page_set(PG_SPACE);
             break;
-        case B_LFO: page_button(PG_LFO1, PG_MENV); break;
+        case B_LFO: page_button(PG_LFO1, PG_MENV2); break;
+        case B_GLO: page_set(PG_MATRIX); break;
+        case B_SEQ: page_set(PG_SETUP); break;
         case B_FX: page_set(PG_COLOR); break;
         case B_PLAY:
             hold = (uint8_t)!hold;
@@ -1109,16 +1309,23 @@ static void input(void)
         const uint8_t *pp = page_params();
         static const uint8_t KN[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
         for (k = 0; k < 4u; k++)
-            if ((e = plat_enc(KN[k])) != 0) {
+            if ((e = plat_enc(KN[k])) != 0 && pp[k] != P_NONE) {
                 /* the sizes step one a detent; the rest faster when turned fast */
                 param_turn(pp[k], PDEF[pp[k]].max < 127u ? e : e * (e > 2 || e < -2 ? 3 : 1));
                 ui.touched = (uint8_t)k;
                 ui.touched_at = plat_ms();
             }
     }
-    {   /* CC1 POSITION, CC71 SPREAD, CC74 TILT from MIDI in */
+    {   /* the keys' pressure (the matrix's PRESSURE): the strongest held key's */
+        uint32_t pr = 0;
+        for (k = 0; k < NKEYS; k++)
+            if (keys >> k & 1u && touch_pressure(k) > pr)
+                pr = touch_pressure(k);
+        key_press = (float)pr / 127.0f;
+    }
+    {   /* CC71 SPREAD, CC74 TILT from MIDI in (CC1, the wheel, is the matrix's) */
         static const uint8_t CCP[3] = {P_POSITION, P_SPREAD, P_TILT};
-        for (k = 0; k < 3u; k++) {
+        for (k = 1; k < 3u; k++) {
             int32_t c = cc_in[k];
             if (c >= 0) {
                 cc_in[k] = -1;
@@ -1135,7 +1342,8 @@ static void input(void)
     ui.btn = btn;
     plat_glow(1);
     plat_leds(btn | (set_dirty ? 1u << B_SAVE : 0u) | (hold ? 1u << B_PLAY : 0u) | (freeze ? 1u << B_REC : 0u) |
-              1u << (ui.page <= PG_TONE ? B_EDIT : ui.page <= PG_SPACE ? B_ENV : ui.page <= PG_MENV ? B_LFO : B_FX), keys);
+              1u << (ui.page <= PG_TONE ? B_EDIT : ui.page <= PG_SPACE ? B_ENV : ui.page <= PG_MENV2 ? B_LFO :
+                     ui.page == PG_MATRIX ? B_GLO : ui.page == PG_COLOR ? B_FX : B_SEQ), keys);
 }
 
 void app_input_only(void) { input(); }
@@ -1157,6 +1365,8 @@ static void draw_header(void)
         cv_text(x + 8, 10, &FONT_XS, PRESETS[set.preset].name, C_GRAY);
         if (hold)
             cv_text(196, 2, &FONT_XS, "HOLD", C_HI);
+        if (shed)                        /* the overload guard is shedding (SETUP tells more) */
+            cv_text(160, 2, &FONT_XS, "LOAD", C_WHITE);
         if (freeze && set.slot != SLOT_PAD)
             cv_text(196, 16, &FONT_XS, "FREEZE", C_WHITE);
     }
@@ -1205,30 +1415,59 @@ static void draw_harmonics(void)
     cv_blit(0, SPEC_Y);
 }
 
-/* LFO 1, LFO 2: one cycle of the wave, where it is now, and what it moves; MOD ENV: its shape and where it is */
+/* what a source moves, from the matrix, as lines "> FOCUS +73%" from y down (at most four) */
+static void draw_targets(uint32_t src, int32_t y)
+{
+    uint32_t k, n = 0;
+    char t[32];
+    for (k = 0; k < NMX && n < 4u; k++) {
+        const uint8_t *m = &set.v[P_MX(k, 0)];
+        if (m[0] != src || !m[1])
+            continue;
+        t[0] = 0;
+        text_cat(t, "> ");
+        text_cat(t, DEST_NAME[m[1] % NDEST]);
+        {
+            char a[12];
+            text_cat(t, " ");
+            value_text(P_MX(k, 2), a);
+            text_cat(t, a);
+        }
+        cv_text(4, y + (int32_t)n * 12, &FONT_XS, t, C_WHITE);
+        n++;
+    }
+    if (!n)
+        cv_text(4, y, &FONT_XS, "> NOTHING YET: SET IT ON THE MATRIX (GLO)", C_DIM);
+}
+
+/* LFO 1-3: one cycle of the wave and where it is now; MOD ENV 1-2: the ADSR and where it is; both: what they move */
 static void draw_mod(void)
 {
-    uint32_t k = ui.page == PG_LFO2 ? 1u : 0u;
-    int32_t i, mid = SPEC_H / 2, amp = SPEC_H / 2 - 14, py = mid;
-    const uint8_t *v = ui.page == PG_MENV ? &set.v[P_MENV] : &set.v[P_LFO(k, 0)];
-    char t[24];
+    int is_env = ui.page == PG_MENV1 || ui.page == PG_MENV2;
+    uint32_t k = is_env ? ui.page - PG_MENV1 : ui.page - PG_LFO1;
+    int32_t i, mid = 62, amp = 34, py = mid;
+    const uint8_t *v = is_env ? &set.v[P_MENV(k, 0)] : &set.v[P_LFO(k, 0)];
+    float a = 0, d = 0, sus = 0, r = 0, span = 1;
     cv_begin(240, SPEC_H, C_BLACK);
+    if (is_env) {                        /* attack, decay, a held stretch, release, on one time scale */
+        a = attack_of((float)v[0]);
+        d = release_of((float)v[1]);
+        sus = unit((float)v[2]);
+        r = release_of((float)v[3]);
+        span = a + d + r + 0.25f * (a + d + r);
+        mid = SPEC_H - 6;
+        amp = 64;
+    }
     cv_rect(0, mid, 240, 1, C_LINE);
     for (i = 0; i <= 236; i++) {
         float ph = (float)i / 236.0f, y;
-        if (ui.page == PG_MENV) {        /* attack, then decay, on one scale */
-            float a = attack_of(v[0]), d = release_of(v[1]), t_ = ph * (a + d);
-            y = t_ < a ? t_ / a : 1.0f - (t_ - a) / d;
-            y = 2.0f * y - 1.0f;
+        if (is_env) {
+            float t_ = ph * span, hold = 0.25f * (a + d + r);
+            y = t_ < a ? t_ / a : t_ < a + d ? 1.0f - (1.0f - sus) * (t_ - a) / d : t_ < a + d + hold ? sus :
+                fm_maxf(0.0f, sus * (1.0f - (t_ - a - d - hold) / r));
         } else {
-            switch (v[1]) {
-            case LFO_SINE: y = fm_sinf(FM_TWO_PI * ph); break;
-            case LFO_TRI: y = ph < 0.5f ? 4.0f * ph - 1.0f : 3.0f - 4.0f * ph; break;
-            case LFO_SAW_UP: y = 2.0f * ph - 1.0f; break;
-            case LFO_SAW_DOWN: y = 1.0f - 2.0f * ph; break;
-            case LFO_SQUARE: y = ph < 0.5f ? 1.0f : -1.0f; break;
-            default: y = fm_sinf(FM_TWO_PI * ph * 3.0f) * 0.6f + fm_sinf(FM_TWO_PI * ph * 7.0f + 1.0f) * 0.3f; break;
-            }
+            y = v[1] >= LFO_SH ? fm_sinf(FM_TWO_PI * ph * 3.0f) * 0.6f + fm_sinf(FM_TWO_PI * ph * 7.0f + 1.0f) * 0.3f
+                               : lfo_wave(v[1], ph, k);
         }
         {
             int32_t yy = mid - (int32_t)(y * (float)amp);
@@ -1237,17 +1476,72 @@ static void draw_mod(void)
             py = yy;
         }
     }
-    if (ui.page == PG_MENV) {
-        int32_t yy = mid - (int32_t)((2.0f * menv - 1.0f) * (float)amp);
-        cv_rect(2, yy - 2, 236, 1, C_WHITE);
+    if (is_env) {
+        int32_t yy = mid - (int32_t)(menv[k].level * (float)amp);
+        cv_rect(2, yy, 236, 1, C_WHITE);
     } else {
         int32_t x = (int32_t)(lfo[k].ph * 236.0f) + 1, yy = mid - (int32_t)(lfo[k].out * (float)amp);
         cv_rect(x - 2, yy - 2, 5, 5, C_WHITE);
     }
+    draw_targets(is_env ? MS_ENV1 + k : MS_LFO1 + k, 2);
+    cv_blit(0, SPEC_Y);
+}
+
+/* MATRIX: the eight slots, SOURCE > DEST and AMOUNT, each with what it adds now; the one the knobs edit lit */
+static void draw_matrix(void)
+{
+    uint32_t k, sel = set.v[P_MSLOT] % NMX;
+    char t[16];
+    cv_begin(240, SPEC_H, C_BLACK);
+    for (k = 0; k < NMX; k++) {
+        const uint8_t *m = &set.v[P_MX(k, 0)];
+        int32_t y = 2 + (int32_t)k * 13, on = m[0] && m[1];
+        uint16_t c = k == sel ? C_WHITE : on ? C_HI : C_DIM;
+        if (k == sel)
+            cv_rect(0, y - 1, 240, 12, C_LINE);
+        t[0] = (char)('1' + k);
+        t[1] = 0;
+        cv_text(4, y, &FONT_XS, t, c);
+        cv_text(16, y, &FONT_XS, MS_NAME[m[0] % NMS], c);
+        cv_text(84, y, &FONT_XS, DEST_NAME[m[1] % NDEST], c);
+        value_text(P_MX(k, 2), t);
+        cv_text(162, y, &FONT_XS, on ? t : "", c);
+        if (on) {                        /* what it adds now: a bar from the middle, -100 .. +100 % */
+            float now = bipolar((float)m[2]) * msrc[m[0] % NMS];
+            int32_t w = (int32_t)(now * 18.0f);
+            cv_rect(220, y + 4, 1, 4, C_GRAY);
+            cv_rect(w >= 0 ? 220 : 220 + w, y + 5, w >= 0 ? w + 1 : -w, 2, c);
+        }
+    }
+    cv_blit(0, SPEC_Y);
+}
+
+/* SETUP: the second core, what it does now, and the overload guard */
+static void draw_setup(void)
+{
+    char t[40];
+    cv_begin(240, SPEC_H, C_BLACK);
+    cv_text(4, 2, &FONT_XS, "2ND CORE (EXPERIMENTAL)", C_GRAY);
+    cv_text(4, 16, &FONT_B, core2_state_text(), core2_running() ? C_HI : C_WHITE);
+    cv_text(4, 38, &FONT_XS, set.v[P_CORE2] != core2_wanted_at_boot ? "SAVE, THEN SWITCH OFF AND ON" :
+                             "IT STARTS AT POWER-ON ONLY", C_DIM);
     t[0] = 0;
-    text_cat(t, "> ");
-    text_cat(t, v[2] == 0u || v[2] >= NDEST ? "OFF" : PDEF[MOD_DEST[v[2]]].name);
-    cv_text(4, 2, &FONT_XS, t, v[2] ? C_WHITE : C_DIM);
+    text_cat(t, "SPLIT FRAMES ");
+    int_text((int32_t)eng.par_jobs, t + 13);
+    cv_text(4, 54, &FONT_XS, t, C_DIM);
+    t[0] = 0;
+    text_cat(t, shed ? "OVERLOAD: SHEDDING, STEP " : "OVERLOAD GUARD: IDLE");
+    if (shed) {
+        char n[4];
+        int_text(shed, n);
+        text_cat(t, n);
+    }
+    cv_text(4, 78, &FONT_XS, t, shed ? C_WHITE : C_DIM);
+    t[0] = 0;
+    text_cat(t, "CPU ");
+    int_text((int32_t)plat_cpu_pct(), t + 4);
+    text_cat(t, "%");
+    cv_text(4, 92, &FONT_XS, t, C_DIM);
     cv_blit(0, SPEC_Y);
 }
 
@@ -1259,8 +1553,16 @@ static void draw_spectrum(void)
         draw_harmonics();
         return;
     }
-    if (ui.page >= PG_LFO1 && ui.page <= PG_MENV) {
+    if (ui.page >= PG_LFO1 && ui.page <= PG_MENV2) {
         draw_mod();
+        return;
+    }
+    if (ui.page == PG_MATRIX) {
+        draw_matrix();
+        return;
+    }
+    if (ui.page == PG_SETUP) {
+        draw_setup();
         return;
     }
     cv_begin(240, SPEC_H, C_BLACK);
@@ -1301,6 +1603,8 @@ static void draw_params(void)
         int32_t x = 4 + (int32_t)(k % 2u) * 120, y = 14 + (int32_t)(k / 2u) * 33, w;
         uint32_t p = pp[k];
         int lit = ui.touched == k && now - ui.touched_at < 600u;
+        if (p == P_NONE)
+            continue;
         cv_text(x, y, &FONT_XS, PDEF[p].name, lit ? C_WHITE : C_GRAY);
         value_text(p, t);
         cv_text(x, y + 12, &FONT_B, t, lit ? C_WHITE : C_HI);
@@ -1364,10 +1668,21 @@ void app_frame(void)
         ui.redraw_spec = 0;
         draw_spectrum();
     }
-    if (now - last_t > ((set.v[P_LFO(0, 2)] || set.v[P_LFO(1, 2)] || set.v[P_MENV + 2]) ? 60u : 500u)) {
-        last_t = now;                    /* (faster while something is modulated: the markers move) */
-        if (++n & 1u || set.v[P_LFO(0, 2)] || set.v[P_LFO(1, 2)] || set.v[P_MENV + 2])
-            draw_params();
+    {
+        int moving = 0;
+        uint32_t k;
+        for (k = 0; k < NMX; k++)
+            moving |= set.v[P_MX(k, 0)] && set.v[P_MX(k, 1)];
+        if (now - last_t > (moving ? 60u : 500u)) {
+            last_t = now;                /* (faster while something is modulated: the markers move) */
+            if (++n & 1u || moving)
+                draw_params();
+        }
+        if (shed && now - shed_at > 3000u) {   /* the overload guard: a step back after three quiet seconds */
+            shed--;
+            shed_at = now;
+            ui.redraw = 1;
+        }
     }
 }
 
@@ -1396,6 +1711,10 @@ int app_expect(const char *what, int *got)
         *got = user_sample() ? (int)user_sample()->len : 0;
     else if (!strcmp(what, "sysex_errors"))   /* sample-load commands answered with an error */
         *got = (int)up_errors;
+    else if (!strcmp(what, "shed"))       /* the overload guard's step */
+        *got = shed;
+    else if (!strncmp(what, "src", 3) && what[3] >= '0' && what[3] <= '9')   /* srcN: matrix source N, x100 */
+        *got = (int)(msrc[atoi(what + 3) % NMS] * 100.0f);
     else if (!strncmp(what, "mod", 3))    /* modN: parameter N as played (modulated), in knob steps */
         *got = (int)(mod_v[atoi(what + 3) % NP] + 0.5f);
     else if (!strcmp(what, "src_len"))    /* the sample the engine scans */
@@ -1414,6 +1733,10 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
     uint32_t n = 0, count = 0;
     int ch;
     (void)b, (void)c, (void)d;
+    if (!strcmp(cmd, "overload")) {      /* "overload": as the platform says when a block took over 90 % */
+        app_overload();
+        return 1;
+    }
     if (strcmp(cmd, "sysex"))
         return 0;
     if (!(f = fopen(a, "rb"))) {
