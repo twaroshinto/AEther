@@ -89,8 +89,48 @@ jobs:
         with:
           name: aether-firmware
           path: app/build/*.fwsc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aether-firmware-debug
+          path: |
+            app/build/*.elf
+            app/build/*.map
+            app/build/*.bin
+          if-no-files-found: ignore
       - name: Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/*.fwsc
+
+  # the built .fwsc in Joakim Eriksson's FM-1 emulator (an emulation of the chip, not of fm1-base): it boots, a chord
+  # is held and the sound must not be silence
+  fm1-emu:
+    needs: firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: aether-firmware
+          path: fw
+      - name: fm1-emu
+        run: |
+          git clone -q https://github.com/joakimeriksson/fm1-emu ~/fm1-emu
+          git -C ~/fm1-emu checkout -q db8d472e62f35d18e392e3abc66474daed65ffe9
+          cargo build -q --release --manifest-path ~/fm1-emu/Cargo.toml -p fm1-emu
+      - name: Run
+        run: |
+          mkdir -p out/work && cd out
+          FM1_AUDIO_TRACE=1 timeout 1500 ~/fm1-emu/target/release/fm1-emu --fwsc ../fw/aether.fwsc --ms 9000 \
+            --wav aether.wav --snap 1500,3000,5000,8000 \
+            --keys '2500-8500:C4,2500-8500:E4,2500-8500:G4' > run.log 2>&1 || true
+          mv work/*.bmp . 2>/dev/null || true
+          grep -vE "^audio" run.log | tail -60
+          grep -E "^audio" run.log | head -20
+          python3 ../tools/wav_level.py aether.wav
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fm1-emu-run
+          path: out/
