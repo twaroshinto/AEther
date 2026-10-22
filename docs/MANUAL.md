@@ -6,7 +6,7 @@ traci ataki i rytm, a zostaje sam kolor. Klawiatura przesuwa ten kolor na wysoko
 
 Wszystkie zrzuty pochodzą z emulatora w przeglądarce, w którym działa ten sam kod co na urządzeniu.
 
-> Wersja v0.4, jeszcze nietestowana na prawdziwym FM-1.
+> Wersja v0.5, jeszcze nietestowana na prawdziwym FM-1. English version: [MANUAL.en.md](MANUAL.en.md).
 
 ## Panel
 
@@ -16,26 +16,28 @@ Wszystkie zrzuty pochodzą z emulatora w przeglądarce, w którym działa ten sa
 |---|---|---|
 | 1 | **MASTER** | głośność |
 | 2 | **SELECT** | przewija strony parametrów (jak SEL) |
-| 3 | **PRESETS** | wybiera preset (24 fabryczne) |
+| 3 | **PRESETS** | wybiera preset (26 fabrycznych) |
 | 4 | **ALGORITHM** | wybiera źródło dźwięku (PAD, VA, HARM, 16 sampli, USER) |
-| 5 | ekran | źródło i preset, podgląd (widmo, harmoniczne, LFO), cztery parametry bieżącej strony |
+| 5 | ekran | źródło i preset, podgląd (widmo, harmoniczne, LFO, matryca), cztery parametry bieżącej strony |
 | 6 | **KNOB 1–4** | cztery parametry bieżącej strony, w kolejności jak na ekranie: lewy górny, prawy górny, lewy dolny, prawy dolny |
 | 7 | **FX** | strona COLOR |
 | 8 | **SEL** | następna strona |
 | 9 | **ENV** | strona SPACE, a przy źródle HARM kolejne naciśnięcia przechodzą przez ENV A, B, C, D |
-| 10 | **LFO** | strony modulacji: LFO 1 → LFO 2 → MOD ENV |
+| 10 | **LFO** | strony modulatorów: LFO 1 → LFO 2 → LFO 3 → MOD ENV 1 → MOD ENV 2 |
 | 11 | **EDIT** | strona SOURCE, a przy HARM drugie naciśnięcie daje TONE |
-| 12 | **HOME** | wycisza wszystkie nuty i wyłącza HOLD |
-| 13 | **SAVE** | zapisuje ustawienia, przycisk świeci, gdy jest coś niezapisanego |
-| 14 | **PLAY** | HOLD: nuty grają dalej po puszczeniu klawiszy, a nowy akord zastępuje poprzedni |
-| 15 | **REC** | FREEZE: zamraża widmo sampla albo VA w bieżącej chwili (przy PAD i HARM nie działa) |
-| 16 | **OCT− / OCT+** | oktawa klawiatury, ±2 |
-| 17 | klawisze | 27 klawiszy z dynamiką, od F3 (przy oktawie 0) |
+| 12 | **GLO** | MATRIX: matryca modulacji |
+| 13 | **HOME** | wycisza wszystkie nuty i wyłącza HOLD |
+| 14 | **SAVE** | zapisuje ustawienia, przycisk świeci, gdy jest coś niezapisanego |
+| 15 | **SEQ** | SETUP: drugi rdzeń (eksperymentalny) i stan bezpiecznika przeciążenia |
+| 16 | **PLAY** | HOLD: nuty grają dalej po puszczeniu klawiszy, a nowy akord zastępuje poprzedni |
+| 17 | **REC** | FREEZE: zamraża widmo sampla albo VA w bieżącej chwili (przy PAD i HARM nie działa) |
+| 18 | **OCT− / OCT+** | oktawa klawiatury, ±2 |
+| 19 | klawisze | 27 klawiszy z dynamiką i naciskiem, od F3 (przy oktawie 0) |
 
-GLO, ARP i SEQ są na razie wolne.
+ARP jest na razie wolny.
 
-Przycisk grupy, w której jesteś, świeci: EDIT dla SOURCE/TONE, ENV dla SPACE i ENV A–D, LFO dla modulacji,
-FX dla COLOR.
+Przycisk grupy, w której jesteś, świeci: EDIT dla SOURCE/TONE, ENV dla SPACE i ENV A–D, LFO dla LFO i MOD ENV,
+GLO dla MATRIX, FX dla COLOR, SEQ dla SETUP.
 
 ## Ekran
 
@@ -46,7 +48,7 @@ FX dla COLOR.
 
 - **Środek:** zależy od strony. Zwykle to widmo ostatniej ramki, od 40 Hz do 16 kHz, z liniami co oktawę. Przy
   samplu nad widmem jest pasek skanu: szary znacznik pokazuje POSITION, jasny miejsce, które gra teraz. Przy HARM
-  widać harmoniczne, a na stronach modulacji przebieg LFO albo obwiedni.
+  widać harmoniczne, na stronach LFO i MOD ENV ich przebieg, a na stronie MATRIX listę ośmiu slotów.
 
 - **Nazwa strony** z kropkami po prawej: jedna kropka na każdą stronę, którą ma bieżące źródło, a jasna to ta,
   na której jesteś.
@@ -54,7 +56,8 @@ FX dla COLOR.
 - **Cztery parametry** z wartością i paskiem. **Biały znacznik na pasku** oznacza, że parametr jest modulowany i
   pokazuje, gdzie jest w tej chwili. Sama gałka trzyma swoją wartość.
 
-- **Stopka:** oktawa, liczba brzmiących głosów (do 8) i obciążenie procesora.
+- **Stopka:** oktawa, liczba brzmiących głosów (do 8) i obciążenie procesora. Gdy działa bezpiecznik
+  przeciążenia, w nagłówku pojawia się napis LOAD.
 
 ## Źródła (ALGORITHM)
 
@@ -169,46 +172,92 @@ Wyciszenie całej nuty po puszczeniu klawisza ustawiasz osobno: RELEASE na stron
 | 3 | **WIDTH** | 0–100 % | szerokość stereo: 0 to mono, 100 to dwa niezależne kanały |
 | 4 | **LEVEL** | 0–100 % | głośność silnika (zapas przed miękkim ogranicznikiem) |
 
-### LFO 1, LFO 2 i MOD ENV: modulacja (LFO)
+### Modulacja: LFO 1–3, MOD ENV 1–2 i MATRIX
 
-Trzy modulatory, a każdy może poruszać jednym parametrem: dwa LFO i obwiednia modulacyjna. Modulacja dodaje się
-do ustawienia gałki, więc gałka wyznacza środek, a modulator porusza wokół niego. DEPTH ±100 % oznacza ruch o
-cały zakres parametru. Ujemna głębokość odwraca kierunek.
+Modulacja składa się z dwóch części. **Modulatory** (trzy LFO i dwie obwiednie) tylko się poruszają i same niczego
+nie zmieniają. **Matryca** (MATRIX, przycisk GLO) ma osiem slotów i każdy łączy jedno źródło z jednym parametrem z
+wybraną siłą. Jedno LFO może więc poruszać kilkoma parametrami naraz, każdym z inną siłą i w inną stronę. Jeden
+parametr może też słuchać kilku źródeł, a ich działanie się sumuje.
 
-![LFO 1 na POSITION](img/manual/lfo.png) ![MOD ENV na TILT](img/manual/menv.png)
+Modulacja dodaje się do ustawienia gałki: gałka wyznacza środek, a modulacja porusza wokół niego. AMOUNT ±100 %
+oznacza ruch o cały zakres parametru, a ujemny AMOUNT odwraca kierunek.
 
-**LFO 1 i LFO 2:**
+#### LFO 1, LFO 2, LFO 3
+
+![LFO 1 w presecie EVOLVER](img/manual/lfo.png)
 
 | Gałka | Parametr | Zakres | Co robi |
 |---|---|---|---|
-| 1 | **RATE** | 0,01–10 Hz | tempo; poniżej 1 Hz ekran pokazuje okres w sekundach (np. 26 S) |
+| 1 | **RATE** | 0,01–10 Hz | tempo; poniżej 1 Hz ekran pokazuje okres w sekundach (np. 37 S) |
 | 2 | **SHAPE** | SINE, TRIANGLE, SAW UP, SAW DOWN, SQUARE, RANDOM, DRIFT | kształt; RANDOM skacze co cykl, DRIFT płynie do losowych punktów |
-| 3 | **DEST** | OFF i lista celów niżej | który parametr porusza |
-| 4 | **DEPTH** | −100 … +100 % | jak mocno i w którą stronę |
+| 3 | **FADE** | OFF, 10 ms – 20 s | po każdej nowej nucie LFO narasta od zera przez ten czas |
+| 4 | **SYNC** | FREE, KEY | KEY: każda nowa nuta zaczyna LFO od początku cyklu |
 
-**MOD ENV** startuje przy każdej nowej nucie (z klawiatury i z MIDI): narasta przez ATTACK, potem opada do zera
-przez DECAY. Gałki: **ATTACK**, **DECAY**, **DEST**, **DEPTH**.
+Na ekranie widać przebieg z kropką w bieżącym miejscu, a nad nim listę celów tego LFO z matrycy.
 
-Na ekranie widać przebieg z kropką w bieżącym miejscu (LFO) albo kształt obwiedni z kreską na bieżącym poziomie
-(MOD ENV), a nad nim cel. Na stronie parametru, który jest modulowany, biały znacznik na pasku pokazuje jego
-bieżącą wartość:
+#### MOD ENV 1 i MOD ENV 2
 
-![TONE w presecie HARM VOWELS: FOCUS i BOOST poruszane przez LFO](img/manual/tone_mod.png) ![LFO 1 w HARM VOWELS](img/manual/lfo_vowels.png)
+![MOD ENV 1 w presecie EVOLVER](img/manual/menv.png)
+
+| Gałka | Parametr | Zakres | Co robi |
+|---|---|---|---|
+| 1 | **ATTACK** | 10 ms – 20 s | narastanie od zera do pełnej wartości |
+| 2 | **DECAY** | 50 ms – 30 s | opadanie do SUSTAIN |
+| 3 | **SUSTAIN** | 0–100 % | poziom, na którym zostaje, dopóki trzymasz klawisz (albo działa HOLD) |
+| 4 | **RELEASE** | 50 ms – 30 s | powrót do zera po puszczeniu wszystkich klawiszy |
+
+Obwiednia startuje od nowa przy każdej nowej nucie (z klawiatury i z MIDI). Jest wspólna dla wszystkich głosów:
+porusza parametrem całego dźwięku, a nie pojedynczej nuty. Na ekranie widać jej kształt z kreską na bieżącym poziomie.
+
+#### MATRIX (GLO)
+
+![MATRIX w presecie EVOLVER](img/manual/matrix.png)
+
+| Gałka | Parametr | Co robi |
+|---|---|---|
+| 1 | **SLOT** | który z ośmiu slotów edytujesz (podświetlony na liście) |
+| 2 | **SOURCE** | źródło modulacji |
+| 3 | **DEST** | cel |
+| 4 | **AMOUNT** | siła i kierunek, −100 … +100 % |
+
+Lista nad gałkami pokazuje wszystkie osiem slotów: źródło, cel, siłę i pasek z bieżącym wkładem.
+
+**Źródła (SOURCE):**
+
+| Źródło | Wartość | Skąd |
+|---|---|---|
+| **LFO 1–3** | −1 … +1 | strony LFO |
+| **ENV 1–2** | 0 … 1 | strony MOD ENV |
+| **VELOCITY** | 0 … 1 | siła uderzenia ostatniej nuty |
+| **WHEEL** | 0 … 1 | kółko modulacji, MIDI CC1 |
+| **PRESSURE** | 0 … 1 | nacisk na klawisz (FM-1), MIDI aftertouch (kanałowy i polifoniczny) |
+| **RANDOM** | −1 … +1 | nowa losowa wartość przy każdej nucie |
+| **KEY** | −1 … +1 | wysokość ostatniej nuty: C4 to 0, dwie oktawy w dół lub w górę to −1/+1 |
 
 **Cele (DEST):** STRETCH, POSITION, SPREAD, TILT, SUB, SHIMMER, WIDTH, LEVEL, BRIGHT, BAND, INHARM, ODD, SHAPE,
-CUTOFF, RESO, SLOPE, EVEN/ODD, FOCUS, BOOST, H BAND. Cel działa tylko wtedy, gdy dotyczy bieżącego źródła: na
+CUTOFF, RESO, SLOPE, EVEN/ODD, FOCUS, BOOST, H BAND oraz **LFO1 RATE, LFO2 RATE, LFO3 RATE**, czyli tempo innego
+LFO (jedno LFO może przyspieszać i zwalniać drugie). Cel działa tylko wtedy, gdy dotyczy bieżącego źródła: na
 przykład CUTOFF porusza filtrem VA, a FOCUS działa przy HARM.
+
+Fabrycznie slot 8 to **WHEEL → POSITION +100 %**: kółko modulacji przewija sample. Presety mogą to zmienić.
+
+Na stronie parametru, który jest modulowany, biały znacznik na pasku pokazuje jego bieżącą wartość:
+
+![TONE w presecie HARM VOWELS: FOCUS i BOOST poruszane przez LFO](img/manual/tone_mod.png)
 
 Silnik bierze nowe wartości raz na ramkę, czyli co 11–93 ms zależnie od SIZE. Bardzo szybkie LFO przy dużym SIZE
 będzie więc schodkowe. Ta estetyka lubi tempa poniżej 1 Hz.
 
 Kilka pomysłów:
 
-- **LFO na POSITION** (SINE, kilka sekund) przy STRETCH INF przewija sample tam i z powrotem.
-- **LFO na FOCUS** (TRIANGLE, wolno) przy BOOST +12 dB daje „samogłoski” przesuwające się po harmonicznych (preset HARM VOWELS).
-- **DRIFT na POSITION** sprawia, że skan błądzi po samplu w nieprzewidywalny sposób (preset DRIFT FOG).
-- **SINE na TILT**, bardzo wolno, daje barwę, która sama się otwiera i przymyka.
-- **MOD ENV na SPREAD** z ujemnym DEPTH sprawia, że każda nowa nuta zaczyna się czysto i rozmywa.
+- **LFO 1 → POSITION** (SINE, kilka sekund) przy STRETCH INF przewija sample tam i z powrotem.
+- **LFO 1 → FOCUS** (TRIANGLE, wolno) przy BOOST +12 dB daje „samogłoski” przesuwające się po harmonicznych (preset HARM VOWELS).
+- **LFO 3 → LFO1 RATE**: samogłoski raz przyspieszają, raz zwalniają.
+- **DRIFT → POSITION** sprawia, że skan błądzi po samplu w nieprzewidywalny sposób (preset DRIFT FOG).
+- **ENV 1 → SPREAD** z ujemnym AMOUNT: każda nowa nuta zaczyna się czysto i rozmywa.
+- **VELOCITY → BOOST** i **PRESSURE → SHIMMER**: mocniejsze granie otwiera barwę, a docisk dokłada oktawę wyżej.
+- **RANDOM → POSITION**: każda nuta zaczyna się w innym miejscu sampla.
+- **KEY → TILT**: wyższe nuty są jaśniejsze.
 
 ### COLOR (FX)
 
@@ -221,37 +270,63 @@ Kilka pomysłów:
 | 3 | **SHIMMER** | 0–100 % | dokłada to samo widmo oktawę wyżej |
 | 4 | **SIZE** | 23–186 ms | to samo co SIZE na stronie sampla, dostępne przy każdym źródle |
 
+### SETUP (SEQ)
+
+![Strona SETUP](img/manual/setup.png)
+
+| Gałka | Parametr | Co robi |
+|---|---|---|
+| 1 | **2ND CORE** | OFF / ON: drugi rdzeń procesora, **eksperymentalnie** |
+
+FM-1 ma dwa rdzenie, ale fabryczne oprogramowania innych autorów używają tylko jednego. Po włączeniu 2ND CORE
+drugi rdzeń maluje widma połowy głosów, co daje zapas mocy przy wielu nutach i źródle HARM. Rdzeń da się
+uruchomić tylko przy starcie, więc: ustaw ON, naciśnij **SAVE**, wyłącz i włącz FM-1.
+
+Ekran pokazuje stan: OFF, RUNNING, DID NOT START (rdzeń nie odpowiedział), GIVEN UP: ONE CORE (rdzeń się spóźnił
+albo źle odczytał zadanie, więc do wyłączenia zasilania gra jeden rdzeń) i BARRED UNTIL POWER-OFF (po takim
+błędzie i resecie). We wszystkich tych przypadkach dźwięk gra dalej na jednym rdzeniu. SPLIT FRAMES liczy ramki
+podzielone między rdzenie. W emulatorze drugi rdzeń nie działa.
+
+> Ta funkcja nie była jeszcze testowana na prawdziwym FM-1. Według innych autorów na niektórych egzemplarzach
+> drugi rdzeń bywa niestabilny pod obciążeniem. Jeśli coś pójdzie nie tak, ustaw OFF i zapisz.
+
+**Bezpiecznik przeciążenia** działa zawsze, także bez drugiego rdzenia. Gdy procesor nie nadąża, AEther po kolei
+wyłącza SUB i SHIMMER, a potem zmniejsza liczbę głosów (do dwóch). Po trzech sekundach spokoju wraca krok po
+kroku. Stan widać na stronie SETUP (OVERLOAD GUARD) i w nagłówku (LOAD).
+
 ## Presety
 
-| Preset | Źródło | Charakter |
-|---|---|---|
-| GLACIER | CHOIR | chór rozciągnięty ~40x, punkt startowy |
-| FOG | CHOIR | wolniej, rozmyte, ciemniej, z oktawą niżej |
-| HALO | PAD | jasny pad z oktawą wyżej |
-| ORGAN DUST | PAD | wąskie pasma, bez parzystych: organy |
-| BELL CLOUD | PAD | nieharmoniczne, dzwonowe |
-| ANALOG MIST | VA | piła, ciepły filtr, MOTION |
-| RESO SWEEP | VA | kwadrat, rezonans, wyraźny ruch filtra |
-| HARM BLOOM | HARM | wysokie harmoniczne wchodzą powoli; LFO 1 na TILT |
-| HARM BELL | HARM | błysk wysokich harmonicznych i H3 na ataku, uwypuklona H5 |
-| HARM VOWELS | HARM | LFO przesuwa FOCUS i BOOST: wędrujące samogłoski |
-| HARM HOLLOW | HARM | same nieparzyste (klarnetowo), wysokie harmoniczne wchodzą powoli przez ENV A |
-| DRIFT FOG | CHOIR | DRIFT błądzi skanem po samplu (POSITION), drugie LFO kołysze barwą (TILT) |
-| GLASS RAIN | GLASS | szkło, z oktawą wyżej |
-| HARP DREAM | STRING | struny, szeroko |
-| WIND TUNNEL | WIND | wiatr, rozmyty, bardzo szeroki |
-| FELT DREAM | PIANO | ciemny fortepian |
-| CELLO SEA | BOWED | wiolonczela, długie narastanie |
-| TANPURA | DRONE | brzęczący bordun, przyciemniony |
-| RAIN ROOM | RAIN | deszcz w pokoju |
-| DAWN | BIRDS | ptaki rozmyte w świt |
-| TAPE MEMORY | TAPE | pianino z taśmy |
-| GRAIN | CHOIR | najkrótsze okno, ziarniste, szybkie |
-| FROZEN | CHOIR | STRETCH INF, mocno rozmyte, zamrożona chwila |
-| DEEP | PAD | ciemny, z mocną oktawą niżej |
+| Nr | Preset | Źródło | Charakter |
+|---|---|---|---|
+| 1 | GLACIER | CHOIR | chór rozciągnięty ~40x, punkt startowy |
+| 2 | FOG | CHOIR | wolniej, rozmyte, ciemniej, z oktawą niżej |
+| 3 | HALO | PAD | jasny pad z oktawą wyżej |
+| 4 | ORGAN DUST | PAD | wąskie pasma, bez parzystych: organy |
+| 5 | BELL CLOUD | PAD | nieharmoniczne, dzwonowe |
+| 6 | ANALOG MIST | VA | piła, ciepły filtr, MOTION |
+| 7 | RESO SWEEP | VA | kwadrat, rezonans, wyraźny ruch filtra |
+| 8 | HARM BLOOM | HARM | wysokie harmoniczne wchodzą powoli; LFO 1 → TILT, ENV 2 → SLOPE |
+| 9 | HARM BELL | HARM | błysk wysokich harmonicznych i H3 na ataku, uwypuklona H5 |
+| 10 | HARM VOWELS | HARM | LFO 1 → FOCUS, LFO 2 → BOOST, LFO 3 → tempo LFO 1: wędrujące samogłoski |
+| 11 | HARM HOLLOW | HARM | same nieparzyste (klarnetowo), wysokie harmoniczne wchodzą powoli przez ENV A |
+| 12 | DRIFT FOG | CHOIR | DRIFT błądzi skanem po samplu (POSITION), drugie LFO kołysze barwą (TILT) |
+| 13 | EVOLVER | HARM | sześć slotów matrycy: samogłoski, oddychające nachylenie, SHIMMER z obwiedni, dynamika na BOOST, falująca szerokość |
+| 14 | BREATHING GLASS | GLASS | każda nuta zaczyna się czysto i rozmywa (ENV 2), docisk dokłada oktawę wyżej, RANDOM zmienia miejsce startu |
+| 15 | GLASS RAIN | GLASS | szkło, z oktawą wyżej |
+| 16 | HARP DREAM | STRING | struny, szeroko |
+| 17 | WIND TUNNEL | WIND | wiatr, rozmyty, bardzo szeroki |
+| 18 | FELT DREAM | PIANO | ciemny fortepian |
+| 19 | CELLO SEA | BOWED | wiolonczela, długie narastanie |
+| 20 | TANPURA | DRONE | brzęczący bordun, przyciemniony |
+| 21 | RAIN ROOM | RAIN | deszcz w pokoju |
+| 22 | DAWN | BIRDS | ptaki rozmyte w świt |
+| 23 | TAPE MEMORY | TAPE | pianino z taśmy |
+| 24 | GRAIN | CHOIR | najkrótsze okno, ziarniste, szybkie |
+| 25 | FROZEN | CHOIR | STRETCH INF, mocno rozmyte, zamrożona chwila |
+| 26 | DEEP | PAD | ciemny, z mocną oktawą niżej |
 
-Wybranie presetu zmienia źródło i wszystkie gałki. SAVE zapamiętuje bieżący stan, także po zmianach gałek, ale
-jest tylko jedno miejsce zapisu.
+Wybranie presetu zmienia źródło, wszystkie gałki, modulatory i matrycę. SAVE zapamiętuje bieżący stan, także po
+zmianach gałek, ale jest tylko jedno miejsce zapisu.
 
 ## Grane
 
@@ -264,7 +339,8 @@ jest tylko jedno miejsce zapisu.
 - **Opóźnienie:** nuta zaczyna brzmieć w następnej ramce, po ~100–140 ms przy SIZE 186 ms i ~20 ms przy 23 ms.
   To część charakteru, nie błąd.
 
-- **Polifonia:** 8 głosów. Dziewiąta nuta zabiera najcichszy głos.
+- **Polifonia:** 8 głosów. Dziewiąta nuta zabiera najcichszy głos. Gdy procesor nie nadąża, bezpiecznik
+  przeciążenia czasowo zmniejsza liczbę głosów (patrz SETUP).
 
 ## MIDI
 
@@ -274,7 +350,8 @@ Przez USB i gniazdo TRS:
 |---|---|
 | nuty, dowolny kanał | grają (z dynamiką) |
 | CC64 | sustain |
-| CC1 (kółko modulacji) | POSITION |
+| CC1 (kółko modulacji) | źródło WHEEL w matrycy (fabrycznie przewija POSITION) |
+| aftertouch (kanałowy, polifoniczny) | źródło PRESSURE w matrycy |
 | CC71 | SPREAD |
 | CC74 | TILT |
 | CC120, CC123 | wszystko off |

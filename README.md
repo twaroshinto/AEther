@@ -5,13 +5,14 @@ długie okna, zachowane amplitudy widma, **losowe fazy** i nakładanie ramek. Z 
 nieskończona chmura. Custom firmware na [fm1-base](https://github.com/charlesvestal/fm1-base) /
 [felucca-bsp](https://github.com/hugelton/felucca-bsp).
 
-> **Status: v0.4, nietestowane na sprzęcie.** Silnik i cała aplikacja przechodzą testy w symulatorze fm1-base
+> **Status: v0.5, nietestowane na sprzęcie.** Silnik i cała aplikacja przechodzą testy w symulatorze fm1-base
 > (te same źródła co firmware), a CI buduje plik `.fwsc` toolchainem JieLi. Na prawdziwym FM-1 jeszcze nie grało:
 > pierwsze uruchomienie to test, nie występ. Instalujesz na własne ryzyko.
 
 ![panel](docs/img/manual/panel_numbered.png)
 
 **[Instrukcja obsługi](docs/MANUAL.md)**: każda gałka, strona i preset, ze zrzutami z emulatora.
+**English:** a spectral "PaulStretch" synth for the FM-1, see the **[user manual in English](docs/MANUAL.en.md)**.
 
 ## Jak to brzmi i jak działa
 
@@ -32,8 +33,10 @@ Cztery rodzaje źródeł widma, jeden silnik:
   **cztery obwiednie** (ATTACK, DECAY, SUSTAIN), każda przypisana do jednej harmonicznej albo grupy (ODD, EVEN,
   LOW, MID, HIGH, ALL).
 
-Do tego **modulacja**: dwa LFO (7 kształtów, w tym losowy i dryf) i obwiednia modulacyjna wyzwalana nutą, każde
-z wybieralnym celem (20 parametrów) i głębokością ±100 %.
+Do tego **matryca modulacji**: 8 slotów „źródło → cel × siła (±100 %)”. Źródła to trzy LFO (7 kształtów, w tym
+losowy i dryf, z FADE i SYNC do nuty), dwie obwiednie ADSR, dynamika, kółko modulacji (CC1), nacisk klawiszy i
+aftertouch, losowa wartość na nutę i wysokość nuty. Celów jest 23, w tym tempo innego LFO. Jedno źródło może
+poruszać kilkoma parametrami, a jeden parametr słuchać kilku źródeł.
 
 | Wbudowane sample | |
 |---|---|
@@ -60,9 +63,24 @@ oryginału w paśmie 5–16 kHz średnio o 2,0 dB z SBR, a bez SBR o 14,4 dB.
 
 Skrót (pełna wersja w [docs/MANUAL.md](docs/MANUAL.md)): **ALGORITHM** wybiera źródło, **PRESETS** preset,
 **KNOB 1–4** to cztery parametry bieżącej strony, a strony zmieniasz przyciskami **EDIT** (SOURCE, TONE),
-**ENV** (SPACE, ENV A–D), **LFO** (LFO 1, LFO 2, MOD ENV), **FX** (COLOR) albo **SEL**/**SELECT** po kolei.
-**PLAY** to HOLD, **REC** to FREEZE, **HOME** wycisza, **SAVE** zapisuje. MIDI: nuty, CC64 sustain, CC1 POSITION,
-CC71 SPREAD, CC74 TILT.
+**ENV** (SPACE, ENV A–D), **LFO** (LFO 1–3, MOD ENV 1–2), **GLO** (MATRIX), **FX** (COLOR), **SEQ** (SETUP) albo
+**SEL**/**SELECT** po kolei. **PLAY** to HOLD, **REC** to FREEZE, **HOME** wycisza, **SAVE** zapisuje. MIDI: nuty,
+CC64 sustain, CC1 i aftertouch jako źródła matrycy (WHEEL, PRESSURE), CC71 SPREAD, CC74 TILT.
+
+## Moc obliczeniowa i drugi rdzeń
+
+Silnik dzieli pracę każdej ramki na małe kroki rozłożone na kolejne bloki audio, więc nawet przy ośmiu głosach
+żaden blok nie dostaje całej ramki naraz. Widma HARM i PAD są rysowane z tablicy zamiast `expf`, a harmoniczne
+cichsze niż −120 dB są pomijane. Na hoście skróciło to rysowanie HARM o ~45 %, a PAD o ~30 %.
+
+**Bezpiecznik przeciążenia** (zawsze włączony): gdy blok audio zajmuje ponad 90 % czasu, AEther wyłącza SUB i
+SHIMMER, a potem zmniejsza liczbę głosów, nawet do dwóch. Po trzech sekundach spokoju wraca krok po kroku.
+
+**Drugi rdzeń** (SETUP → 2ND CORE, **eksperymentalny**, domyślnie wyłączony): rdzeń 1 maluje widma połowy głosów,
+podczas gdy rdzeń 0 czeka w przerwaniu audio. Rdzeń startuje tylko przy włączeniu zasilania. Każde zadanie ma
+słowo kontrolne, a spóźniona albo błędna odpowiedź wyłącza rdzeń do wyłączenia zasilania (dźwięk gra dalej na
+jednym). Działanie sprawdzone tylko w testach na hoście (wynik identyczny jak na jednym rdzeniu); na urządzeniu
+jeszcze nie.
 
 ## Emulator w przeglądarce
 
@@ -98,7 +116,7 @@ psuje: nagłówek jest kasowany na początku i zapisywany dopiero po sprawdzeniu
 ## Budowanie
 
 ```sh
-git clone --recursive https://github.com/twaroshinto/AEther && cd fm1-aether
+git clone --recursive https://github.com/twaroshinto/AEther && cd AEther
 sh tests/run.sh          # testy silnika + cała aplikacja w symulatorze (cc, python3, Pillow, numpy)
 ./build.sh --host        # sam symulator: app/build/host/aether_host SKRYPT KATALOG
 ./build.sh               # firmware: app/build/aether.fwsc
@@ -130,8 +148,9 @@ pójdzie źle, przytrzymanie **OCT− i OCT+ przez 5 s** wchodzi w tryb aktualiz
 | Ścieżka | Co |
 |---|---|
 | `app/dsp/aether.c`, `aether.h` | silnik: przenośne C99, float, bez alokacji i bez libc; dekoder ADPCM |
-| `app/dsp/va.c`, `va.h` | źródło VA: oscylator polyBLEP, filtr SVF, MOTION |
-| `app/app.c`, `app/app.h` | aplikacja FM-1: panel, ekran, MIDI, presety, wgrywanie sampli (SysEx) |
+| `app/dsp/va.c`, `va.h` | źródło VA: oscylator polyBLEP i MOTION (filtr działa w widmie, w `aether.c`) |
+| `app/app.c`, `app/app.h` | aplikacja FM-1: panel, ekran, MIDI, presety, matryca modulacji, bezpiecznik przeciążenia, wgrywanie sampli (SysEx) |
+| `app/hw/core1.c`, `core1.S` | drugi rdzeń (eksperymentalny): start, skrzynka zadań, nadzór |
 | `app/fm1.toml` | ustawienia builda fm1-base |
 | `app/tools/gen_source.py` | generator wbudowanych sampli (przy budowaniu, bez nagrań i licencji) |
 | `app/tools/aet_adpcm.py` | koder IMA ADPCM w formacie silnika (generator i `aether_load.py`) |
@@ -144,6 +163,6 @@ pójdzie źle, przytrzymanie **OCT− i OCT+ przez 5 s** wchodzi w tryb aktualiz
 ## Licencja i podziękowania
 
 MPL-2.0, jak fm1-base. Pomysł losowych faz na długich oknach i profil PADsynth pochodzą od Nasci Octaviana Paula
-(PaulStretch, PADsynth). **Kod SMUGI jest napisany od zera i nie zawiera kodu PaulStretcha** (który jest na GPL).
+(PaulStretch, PADsynth). **Kod AEther jest napisany od zera i nie zawiera kodu PaulStretcha** (który jest na GPL).
 Platforma: fm1-base (Charles Vestal) i felucca-bsp (Leo Kuroshita, Hügelton Instruments). Projekt nieoficjalny,
 niezwiązany z M-VAVE ani JieLi.

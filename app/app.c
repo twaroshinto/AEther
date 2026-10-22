@@ -7,8 +7,9 @@
  * The panel:
  *   keys            notes (velocity from the keys); OCT- / OCT+ the octave
  *   K1 .. K4        the page's four parameters
- *   SEL, SELECT     the next page (SOURCE, TONE, ENV A-D, SPACE, LFO 1, LFO 2, MOD ENV, COLOR; TONE and ENV A-D only
- *                   with HARM). EDIT: SOURCE / TONE; ENV: SPACE / ENV A-D; LFO: LFO 1 / LFO 2 / MOD ENV; FX: COLOR
+ *   SEL, SELECT     the next page (SOURCE, TONE, ENV A-D, SPACE, LFO 1-3, MOD ENV 1-2, MATRIX, COLOR, SETUP; TONE
+ *                   and ENV A-D only with HARM). EDIT: SOURCE / TONE; ENV: SPACE / ENV A-D; LFO: LFO 1-3 / MOD ENV
+ *                   1-2; GLO: MATRIX; FX: COLOR; SEQ: SETUP (the experimental second core, the overload guard)
  *   ALGORITHM       the source: PAD (harmonic clouds), VA (a virtual-analog voice, smeared live), HARM (an
  *                   additive generator with four harmonic envelopes), 16 built-in samples, USER (loaded over USB)
  *   PRESET          a factory preset
@@ -16,8 +17,8 @@
  *   REC             FREEZE: the sample's scan stops, the spectrum held
  *   HOME            all notes off (and HOLD off)
  *   SAVE            the settings kept across a power cycle
- * MIDI in (USB, TRS): notes on any channel, CC64 sustain, CC1 POSITION, CC71 SPREAD, CC74 TILT. Notes from the keys
- * go out over USB. */
+ * MIDI in (USB, TRS): notes on any channel, CC64 sustain, CC1 the matrix's WHEEL, channel and poly pressure its
+ * PRESSURE, CC71 SPREAD, CC74 TILT. Notes from the keys go out over USB. */
 #include "fastmath.h"
 #include "aether.h"
 #include "va.h"
