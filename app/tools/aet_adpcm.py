@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
 # Copyright (C) 2026 fm1-aether contributors
+# AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE).
 """AETHER's sample format AET_FMT_ADPCM (app/dsp/aether.h): IMA ADPCM, 4 bits a sample, in blocks of 256 samples of
 132 bytes each: the first sample (int16 LE), the step index, a zero byte, then 255 codes, two a byte, low nibble first.
 Every block starts afresh, so the engine can read from any point. The encoder mirrors the C decoder exactly."""

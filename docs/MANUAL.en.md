@@ -7,6 +7,9 @@ you play chords with it.
 
 All screenshots come from the browser emulator, which runs the same code as the device.
 
+> **AI-generated code, no warranty. You use it at your own risk** (the NOTICE file in the repository). Mind the
+> volume: the sound can be loud and sharp.
+>
 > Version v0.5, not yet tested on a real FM-1. Polska wersja: [MANUAL.md](MANUAL.md).
 
 ## The panel
@@ -21,7 +24,7 @@ All screenshots come from the browser emulator, which runs the same code as the 
 | 4 | **ALGORITHM** | picks the kind of source: SAMPLE, LIVE, PAD, HARM, VA |
 | 5 | screen | source and preset, a view (spectrum, harmonics, LFO, matrix), the current page's four parameters |
 | 6 | **KNOB 1–4** | the current page's four parameters, in screen order: top left, top right, bottom left, bottom right |
-| 7 | **FX** | the COLOR page |
+| 7 | **FX** | colour: COLOR → EQ 1 → EQ 2 → EQ 3 (a parametric EQ) |
 | 8 | **SEL** | the next page (every page in turn) |
 | 9 | **ENV** | the envelopes: AMP → MOD ENV 1 → MOD ENV 2; held + a knob: modulate with an envelope |
 | 10 | **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX; held + a knob: modulate with an LFO |
@@ -47,7 +50,7 @@ The pages are grouped under five buttons. Each button has its own pages:
 | **ENV** | AMP → MOD ENV 1 → MOD ENV 2 | the envelopes: volume and two for modulation |
 | **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX | the LFOs and the matrix that routes them |
 | **SEQ** | EVOLVE | how the sound changes over time |
-| **FX** | COLOR | colour: TILT, SUB, SHIMMER, SIZE |
+| **FX** | COLOR → EQ 1 → EQ 2 → EQ 3 | colour: TILT, SUB, SHIMMER, SIZE, then the EQ's three bands |
 | **GLO** | SETUP | global settings |
 
 There are three rules:
@@ -323,7 +326,9 @@ The list above the knobs shows all eight slots: source, destination, amount and 
 **Destinations (DEST):** STRETCH, POSITION, SPREAD, TILT, SUB, SHIMMER, WIDTH, LEVEL, BRIGHT, BAND, INHARM, ODD,
 SHAPE, CUTOFF, RESO, SLOPE, EVEN/ODD, FOCUS, BOOST, H BAND, plus **LFO1 RATE, LFO2 RATE, LFO3 RATE**: the speed of
 another LFO (one LFO can speed up and slow down another). A destination only works when it applies to the current
-source: CUTOFF moves the VA filter, for example, and FOCUS works with HARM.
+source: CUTOFF moves the VA filter, for example, and FOCUS works with HARM. Then **LIVE TONE, LIVE MOVE, LIVE CHAR,
+LIVE DENSITY** (the LIVE sources) and **EQ1–EQ3 FREQ, GAIN, WIDTH**, the EQ's bands: a slow LFO on EQ2 FREQ with the
+bell boosted, for example, sweeps a "vowel" through any source.
 
 By default slot 8 is **WHEEL → POSITION +100 %**: the mod wheel scrubs the sample. Presets may change that.
 
@@ -392,6 +397,24 @@ made.
 | 2 | **SUB** | 0–100 % | adds the same spectrum an octave lower |
 | 3 | **SHIMMER** | 0–100 % | adds the same spectrum an octave higher |
 | 4 | **SIZE** | 23–186 ms | the same as SIZE on the sample page, available with every source |
+
+### EQ 1, EQ 2, EQ 3 (FX): a parametric EQ
+
+Three EQ bands act last, on the spectrum, together with TILT. An EQ page shows the whole EQ's curve (the white line,
+±18 dB) over the spectrum and the bands' points, this page's band highlighted. The EQ is optional: by default its
+bands are at 0 dB and change nothing (a low shelf at 150 Hz, a bell at 1 kHz, a high shelf at 5 kHz).
+
+![EQ 3 as a high shelf at −5.7 dB](img/manual/eq.png)
+
+| Knob | Parameter | Range | What it does |
+|---|---|---|---|
+| 1 | **FREQ** | 20 Hz – 20 kHz | the band's frequency (a cut's corner) |
+| 2 | **GAIN** | −18 … +18 dB | boost or cut (shelves and the bell) |
+| 3 | **WIDTH** | 0.25–4 octaves | the bell's width, the shelf's gentleness |
+| 4 | **TYPE** | OFF, BELL, LOW SHELF, HIGH SHELF, LOW CUT, HIGH CUT | the band's shape; the cuts are 12 dB/oct and ignore GAIN |
+
+Each band's FREQ, GAIN and WIDTH are matrix destinations (EQ1 FREQ … EQ3 WIDTH), so the EQ can move like any other
+parameter. A few presets (HARM BLOOM, BELL CLOUD, DAWN and others) use EQ 3 as a gentle high shelf to soften the top.
 
 ### SETUP (GLO)
 

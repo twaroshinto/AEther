@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-aether contributors */
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE). */
 /* AETHER's engine: see aether.h. One frame, as a job of small steps:
  *
  *   WIN    the synthesis window for a new frame length
@@ -302,11 +303,62 @@ static uint32_t bound(const aet_t *e)
     return b + b / 16u;                  /* (a margin: the painters' steps round up) */
 }
 
+/* the EQ: one band's gain at d octaves from its frequency (x = hz / its frequency), dB */
+static float eq_band_db(uint32_t type, float d, float x, float db, float oct)
+{
+    float w = fm_maxf(oct, 0.05f), t;
+    switch (type) {
+    case AET_EQ_BELL:                    /* a bell: half its gain at +-oct/2 */
+        t = d / (0.5f * w);
+        return db * fm_exp2f(-t * t);
+    case AET_EQ_LOSHELF:
+        return db * (0.5f - 0.5f * fm_tanhf(2.0f * d / w));
+    case AET_EQ_HISHELF:
+        return db * (0.5f + 0.5f * fm_tanhf(2.0f * d / w));
+    case AET_EQ_LOCUT:                   /* 12 dB/octave (two poles, Butterworth) */
+    case AET_EQ_HICUT: {
+        float x2 = x * x, den = (1.0f - x2) * (1.0f - x2) + 2.0f * x2;
+        float g = type == AET_EQ_LOCUT ? x2 * x2 / den : 1.0f / den;   /* the gain, squared */
+        return fm_maxf(3.0103f * fm_log2f(fm_maxf(g, 1e-12f)) * 1.0f, -72.0f);
+    }
+    default:
+        return 0.0f;
+    }
+}
+
+float aet_eq_db(const aet_params_t *p, float hz)
+{
+    float db = 0.0f;
+    uint32_t b;
+    for (b = 0; b < AET_EQ; b++)
+        if (p->eq_type[b] != AET_EQ_OFF && p->eq_hz[b] > 0.0f) {
+            float x = hz / p->eq_hz[b];
+            db += eq_band_db(p->eq_type[b], fm_log2f(x), x, p->eq_db[b], p->eq_oct[b]);
+        }
+    return db;
+}
+
+/* this frame's EQ as a table of log2 gains (the bins interpolate it): only when a band does something */
+static void eq_table(aet_t *e)
+{
+    uint32_t b, k;
+    e->eq_on = 0;
+    for (b = 0; b < AET_EQ; b++)
+        if (e->fp.eq_type[b] == AET_EQ_LOCUT || e->fp.eq_type[b] == AET_EQ_HICUT ||
+            (e->fp.eq_type[b] != AET_EQ_OFF && fm_fabsf(e->fp.eq_db[b]) > 0.05f))
+            e->eq_on = 1;
+    if (!e->eq_on)
+        return;
+    for (k = 0; k <= AET_EQ_TAB; k++)
+        e->eq_tab[k] = aet_eq_db(&e->fp, 20.0f * fm_exp2f((float)k * (10.0f / (float)AET_EQ_TAB))) * 0.166096405f;
+}
+
 static void frame_begin(aet_t *e)
 {
     uint32_t want;
     float pos;
     e->fp = e->p;                        /* one set of parameters for the whole frame */
+    eq_table(e);
     want = aet_size_n(e->fp.size);
     if (want != e->n) {
         e->n = want;
@@ -767,8 +819,20 @@ static void phase_step(aet_t *e)
             continue;
         }
         lk = fm_log2f((float)k);
-        if (tilt != 0.0f)
-            m *= fm_exp2f(tilt * (lk + t500));
+        if (tilt != 0.0f || e->eq_on) {  /* TILT and the EQ: one gain, in log2 */
+            float g = tilt * (lk + t500);
+            if (e->eq_on) {
+                float t = (lk + lb - 4.321928f) * ((float)AET_EQ_TAB / 10.0f);   /* (log2 20 Hz) */
+                int32_t i = (int32_t)t;
+                if (i < 0)
+                    g += e->eq_tab[0];
+                else if (i >= (int32_t)AET_EQ_TAB)
+                    g += e->eq_tab[AET_EQ_TAB];
+                else
+                    g += e->eq_tab[i] + (t - (float)i) * (e->eq_tab[i + 1] - e->eq_tab[i]);
+            }
+            m *= fm_exp2f(g);
+        }
         if (lp_x > 0.0f) {               /* two 2-pole sections: one resonant (Q 0.55 .. 8), one Butterworth */
             float x = lp_x * (float)k, x2 = x * x, d = (1.0f - x2) * (1.0f - x2);
             m *= fm_rsqrtf(d + x2 * lp_iq2) * fm_rsqrtf(d + 2.0f * x2);
@@ -1090,6 +1154,12 @@ void aet_defaults(aet_params_t *p)
         p->h_att[k] = 0.5f;
         p->h_dec[k] = 2.0f;
         p->h_sus[k] = 0.5f;
+    }
+    for (int k = 0; k < (int)AET_EQ; k++) {   /* the EQ: flat */
+        p->eq_type[k] = AET_EQ_OFF;
+        p->eq_hz[k] = 1000.0f;
+        p->eq_db[k] = 0.0f;
+        p->eq_oct[k] = 1.0f;
     }
 }
 

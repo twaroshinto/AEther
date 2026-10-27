@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-aether contributors */
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE). */
 /* AETHER's live sources: small generators that play all the time at C4 and feed the engine's LIVE source
  * (aet_live_push), the way VA does. They are recipes, not recordings, in the spirit of the demoscene's 64k intros:
  * a few hundred bytes of code each, no flash for samples, never repeating, and they change by themselves, slowly.

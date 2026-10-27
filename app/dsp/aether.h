@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-aether contributors */
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE). */
 /* AETHER: a spectral "smear" synthesizer in the spirit of PaulStretch (Nasca Octavian Paul's extreme time stretch).
  *
  * Every frame is built in the frequency domain: a magnitude spectrum (from a sample scanned very slowly, or from a
@@ -58,6 +59,10 @@ enum { AET_FMT_PCM16, AET_FMT_ADPCM, AET_NFMT };
 #define AET_ADPCM_SIZE(len) (((len) + AET_ADPCM_BLOCK - 1u) / AET_ADPCM_BLOCK * AET_ADPCM_BYTES)
 enum { AET_SIZE_1K, AET_SIZE_2K, AET_SIZE_4K, AET_SIZE_8K, AET_NSIZE };
 
+#define AET_EQ 3u                        /* the EQ's bands */
+enum { AET_EQ_OFF, AET_EQ_BELL, AET_EQ_LOSHELF, AET_EQ_HISHELF, AET_EQ_LOCUT, AET_EQ_HICUT, AET_NEQ_TYPE };
+#define AET_EQ_TAB 160u                  /* the EQ's curve: points over 10 octaves from 20 Hz */
+
 typedef struct {
     const uint8_t *data;                 /* mono, AET_FMT_*; 0 = none */
     uint32_t len;                        /* samples */
@@ -112,6 +117,12 @@ typedef struct {
     float h_width;                       /* the boost's width, in harmonics */
     float h_vel;                         /* 0 .. 1: softer notes darker */
     float h_att[AET_HENV], h_dec[AET_HENV], h_sus[AET_HENV];   /* seconds, seconds, 0 .. 1 */
+    /* the EQ: three bands, the last thing on the spectrum (with TILT); a band of 0 dB (or OFF) costs nothing */
+    uint8_t eq_type[AET_EQ];             /* AET_EQ_* */
+    uint8_t rsv3[1];
+    float eq_hz[AET_EQ];                 /* the band's frequency (a cut's corner) */
+    float eq_db[AET_EQ];                 /* its gain, dB (shelves and bells) */
+    float eq_oct[AET_EQ];                /* its width in octaves (a bell's at half its gain; a shelf's slope) */
 } aet_params_t;
 
 typedef struct {
@@ -135,6 +146,8 @@ typedef struct {
 
 typedef struct {
     aet_params_t p;                      /* written by the caller */
+    float eq_tab[AET_EQ_TAB + 1u];       /* this frame's EQ (and TILT), log2 of its gain, 20 Hz .. 20.5 kHz */
+    uint8_t eq_on, rsv_eq[3];
     aet_params_t fp;                     /* this frame's copy */
     aet_sample_t smp;                    /* the source sample (aet_set_sample) */
     aet_adpcm_t ad;
@@ -190,3 +203,4 @@ int aet_active(const aet_t *e);          /* voices sounding */
 float aet_harm_level(const aet_params_t *p, uint32_t h, float vel);
 int aet_harm_takes(uint32_t target, uint32_t h);
 float aet_harm_env(const aet_params_t *p, uint32_t k, float t);
+float aet_eq_db(const aet_params_t *p, float hz);   /* the EQ's gain at hz, dB (TILT not in it): for a screen */

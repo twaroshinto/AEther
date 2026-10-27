@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-aether contributors */
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE). */
 /* AETHER's engine on its own, on this machine: scenarios rendered to WAV files and checked.
  *
  *   tests/run.sh               builds this with the generated source and runs it
@@ -780,6 +781,47 @@ static void t_dual(void)
     }
 }
 
+/* the EQ: a bell lifts its harmonic by its gain, a high cut takes the top away, a flat EQ changes nothing */
+static void t_eq(void)
+{
+    double flat8, flat16, bell8, cut16, off8;
+    rec_t rc = {0};
+    printf("eq: PAD on C4; a +12 dB bell on the 8th harmonic, then a high cut at 1 kHz\n");
+    reset();
+    eng.p.source = AET_SRC_PAD;
+    eng.p.bright = 0.9f;
+    eng.p.bandwidth = 20.0f;
+    eng.p.attack = 0.05f;
+    eng.p.width = 0.0f;
+    aet_note_on(&eng, 60, 1.0f);
+    rec_run(&rc, 2.0f);
+    flat8 = goertzel_db(&rc, 1.0, 2.0, 261.63 * 8);
+    flat16 = goertzel_db(&rc, 1.0, 2.0, 261.63 * 16);
+    eng.p.eq_type[1] = AET_EQ_BELL;
+    eng.p.eq_hz[1] = 261.63f * 8.0f;
+    eng.p.eq_db[1] = 12.0f;
+    eng.p.eq_oct[1] = 0.5f;
+    rec_run(&rc, 1.5f);
+    bell8 = goertzel_db(&rc, 2.6, 3.5, 261.63 * 8);
+    eng.p.eq_type[1] = AET_EQ_OFF;
+    eng.p.eq_type[2] = AET_EQ_HICUT;
+    eng.p.eq_hz[2] = 1000.0f;
+    rec_run(&rc, 1.5f);
+    cut16 = goertzel_db(&rc, 4.1, 5.0, 261.63 * 16);
+    eng.p.eq_type[2] = AET_EQ_OFF;
+    rec_run(&rc, 1.5f);
+    off8 = goertzel_db(&rc, 5.6, 6.5, 261.63 * 8);
+    printf("  H8 flat %.1f, bell %.1f dB (%+.1f); H16 flat %.1f, cut %.1f dB (%+.1f); H8 off again %.1f dB\n", flat8,
+           bell8, bell8 - flat8, flat16, cut16, cut16 - flat16, off8);
+    CHECK(fabs(bell8 - flat8 - 12.0) < 3.0, "eq: the bell lifts H8 by %.1f dB, not 12", bell8 - flat8);
+    CHECK(cut16 - flat16 < -20.0, "eq: the high cut takes H16 down only %.1f dB", cut16 - flat16);
+    CHECK(fabs(off8 - flat8) < 2.0, "eq: off, H8 is %.1f dB from flat", off8 - flat8);
+    CHECK(fabs(aet_eq_db(&eng.p, 1000.0f)) < 0.01f, "eq: flat, %.2f dB at 1 kHz", aet_eq_db(&eng.p, 1000.0f));
+    check_sane(&rc, "eq");
+    rec_wav(&rc, "eq.wav");
+    rec_free(&rc);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1)
@@ -793,6 +835,7 @@ int main(int argc, char **argv)
     t_live();
     t_builtins();
     t_harm();
+    t_eq();
     t_dual();
     if (argc > 3)
         t_adpcm(argv[2], argv[3]);

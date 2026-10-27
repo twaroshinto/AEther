@@ -1,0 +1,39 @@
+AEther — firmware for the M-VAVE FM-1
+=====================================
+
+AI-GENERATED CODE. NO WARRANTY. USE AT YOUR OWN RISK.
+
+The code, the tools, the tests and the documentation of this project were written by an AI (Claude, by
+Anthropic), at a person's request and under their direction. They have been checked only by automated tests,
+in a simulator and in emulators; they have NOT been reviewed line by line by a human, and the firmware has NOT
+been tested on a real M-VAVE FM-1.
+
+The project is provided "as is", WITHOUT ANY WARRANTY of any kind, express or implied, including (without
+limitation) merchantability, fitness for a particular purpose and non-infringement. Installing it, running it
+or building on it is entirely at your own risk: the authors and contributors are not liable for any damage to
+devices, data, hearing or anything else, nor for any loss, that comes from its use. Updating a device's firmware
+can leave it unusable; keep the official firmware and the recovery steps (README) at hand. Mind the volume:
+generated sound can be loud and sharp.
+
+The licence is the Mozilla Public License 2.0 (LICENSE), whose sections 6 (Disclaimer of Warranty) and
+7 (Limitation of Liability) apply in full. This notice adds to them; it does not change the licence's terms.
+The platform under it (base/: fm1-base, felucca-bsp) keeps its own authors' licences and notices.
+
+-------------------------------------------------------------------------------------------------------------------
+
+KOD WYGENEROWANY PRZEZ AI. BEZ GWARANCJI. UŻYWASZ NA WŁASNĄ ODPOWIEDZIALNOŚĆ.
+
+Kod, narzędzia, testy i dokumentację tego projektu napisała sztuczna inteligencja (Claude, Anthropic) na prośbę
+i według wskazówek człowieka. Sprawdzały je tylko testy automatyczne, symulator i emulatory; nie zostały
+przejrzane linijka po linijce przez człowieka, a firmware NIE był testowany na prawdziwym M-VAVE FM-1.
+
+Projekt jest udostępniony „tak jak jest”, BEZ JAKIEJKOLWIEK GWARANCJI, wyraźnej ani dorozumianej, w tym
+przydatności handlowej, przydatności do określonego celu i nienaruszania praw. Instalujesz go, uruchamiasz i
+rozwijasz wyłącznie na własną odpowiedzialność: autorzy i współtwórcy nie odpowiadają za żadne szkody w
+urządzeniach, danych, słuchu ani w niczym innym, ani za straty wynikłe z jego użycia. Wgranie firmware'u może
+unieruchomić urządzenie; miej pod ręką oficjalny firmware i sposób przywracania (README). Uważaj na głośność:
+generowany dźwięk bywa głośny i ostry.
+
+Licencją jest Mozilla Public License 2.0 (LICENSE), której sekcje 6 (wyłączenie gwarancji) i 7 (ograniczenie
+odpowiedzialności) obowiązują w całości. Ta informacja je uzupełnia, nie zmienia warunków licencji. Platforma
+pod spodem (base/: fm1-base, felucca-bsp) ma własne licencje i informacje swoich autorów.

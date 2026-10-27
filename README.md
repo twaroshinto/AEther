@@ -5,6 +5,11 @@ długie okna, zachowane amplitudy widma, **losowe fazy** i nakładanie ramek. Z 
 nieskończona chmura. Custom firmware na [fm1-base](https://github.com/charlesvestal/fm1-base) /
 [felucca-bsp](https://github.com/hugelton/felucca-bsp).
 
+> **⚠ Kod wygenerowany przez AI, bez żadnej gwarancji, używasz na własną odpowiedzialność.** Cały kod,
+> narzędzia, testy i dokumentację napisała sztuczna inteligencja (Claude, Anthropic). Nikt nie przejrzał ich
+> linijka po linijce, a firmware nie był uruchamiany na prawdziwym FM-1. Szczegóły w [NOTICE](NOTICE).
+> **AI-generated code, no warranty of any kind, use at your own risk** (see [NOTICE](NOTICE)).
+
 > **Status: v0.5, nietestowane na sprzęcie.** Silnik i cała aplikacja przechodzą testy w symulatorze fm1-base
 > (te same źródła co firmware), a CI buduje plik `.fwsc` toolchainem JieLi. Na prawdziwym FM-1 jeszcze nie grało:
 > pierwsze uruchomienie to test, nie występ. Instalujesz na własne ryzyko.
@@ -166,9 +171,11 @@ pójdzie źle, przytrzymanie **OCT− i OCT+ przez 5 s** wchodzi w tryb aktualiz
 | `tools/aether_load.py` | wgrywanie WAV-ów po USB-MIDI |
 | `base/` | fm1-base (submoduł) |
 
-## Licencja i podziękowania
+## Licencja, brak gwarancji i podziękowania
 
-MPL-2.0, jak fm1-base. Pomysł losowych faz na długich oknach i profil PADsynth pochodzą od Nasci Octaviana Paula
+MPL-2.0, jak fm1-base. **Kod jest wygenerowany przez AI i udostępniony bez żadnej gwarancji (sekcje 6 i 7 MPL
+obowiązują w całości). Instalujesz go i używasz na własną odpowiedzialność**: autorzy nie odpowiadają za szkody w
+urządzeniu, danych ani słuchu. Pełna treść w [NOTICE](NOTICE). Pomysł losowych faz na długich oknach i profil PADsynth pochodzą od Nasci Octaviana Paula
 (PaulStretch, PADsynth). **Kod AEther jest napisany od zera i nie zawiera kodu PaulStretcha** (który jest na GPL).
 Platforma: fm1-base (Charles Vestal) i felucca-bsp (Leo Kuroshita, Hügelton Instruments). Projekt nieoficjalny,
 niezwiązany z M-VAVE ani JieLi.

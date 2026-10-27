@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-aether contributors */
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE). */
 /* The FM-1's second core (CPU1), EXPERIMENTAL and off unless the player turns it on (SETUP > 2ND CORE): it takes
  * effect at the next power-on, because core 1 starts only before the audio and the timers are running.
  *

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-aether contributors */
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE). */
 /* AETHER's VA source: one virtual-analog oscillator that runs all the time at C4 and feeds the engine's LIVE source
  * (aet_live_push). The engine smears its newest window and moves it to each key's pitch, so one cheap monophonic
  * voice plays every note of a chord. Because the phases are thrown away, only the spectrum matters.

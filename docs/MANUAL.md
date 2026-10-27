@@ -6,6 +6,9 @@ traci ataki i rytm, a zostaje sam kolor. Klawiatura przesuwa ten kolor na wysoko
 
 Wszystkie zrzuty pochodzą z emulatora w przeglądarce, w którym działa ten sam kod co na urządzeniu.
 
+> **Kod wygenerowany przez AI, bez gwarancji. Używasz go na własną odpowiedzialność** (plik NOTICE w repozytorium).
+> Uważaj na głośność: dźwięk bywa głośny i ostry.
+>
 > Wersja v0.5, jeszcze nietestowana na prawdziwym FM-1. English version: [MANUAL.en.md](MANUAL.en.md).
 
 ## Panel
@@ -20,7 +23,7 @@ Wszystkie zrzuty pochodzą z emulatora w przeglądarce, w którym działa ten sa
 | 4 | **ALGORITHM** | wybiera rodzaj źródła: SAMPLE, LIVE, PAD, HARM, VA |
 | 5 | ekran | źródło i preset, podgląd (widmo, harmoniczne, LFO, matryca), cztery parametry bieżącej strony |
 | 6 | **KNOB 1–4** | cztery parametry bieżącej strony, w kolejności jak na ekranie: lewy górny, prawy górny, lewy dolny, prawy dolny |
-| 7 | **FX** | strona COLOR |
+| 7 | **FX** | barwa: COLOR → EQ 1 → EQ 2 → EQ 3 (korektor parametryczny) |
 | 8 | **SEL** | następna strona (wszystkie po kolei) |
 | 9 | **ENV** | obwiednie: AMP → MOD ENV 1 → MOD ENV 2; przytrzymany + gałka: modulacja obwiednią |
 | 10 | **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX; przytrzymany + gałka: modulacja LFO |
@@ -46,7 +49,7 @@ Strony są pogrupowane pod pięcioma przyciskami. Każdy przycisk ma swoje stron
 | **ENV** | AMP → MOD ENV 1 → MOD ENV 2 | obwiednie: głośności i dwie modulacyjne |
 | **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX | LFO i matryca, która je rozprowadza |
 | **SEQ** | EVOLVE | jak dźwięk zmienia się w czasie |
-| **FX** | COLOR | barwa: TILT, SUB, SHIMMER, SIZE |
+| **FX** | COLOR → EQ 1 → EQ 2 → EQ 3 | barwa: TILT, SUB, SHIMMER, SIZE, potem trzy pasma korektora |
 | **GLO** | SETUP | ustawienia globalne |
 
 Zasady są trzy:
@@ -325,7 +328,9 @@ Lista nad gałkami pokazuje wszystkie osiem slotów: źródło, cel, siłę i pa
 **Cele (DEST):** STRETCH, POSITION, SPREAD, TILT, SUB, SHIMMER, WIDTH, LEVEL, BRIGHT, BAND, INHARM, ODD, SHAPE,
 CUTOFF, RESO, SLOPE, EVEN/ODD, FOCUS, BOOST, H BAND oraz **LFO1 RATE, LFO2 RATE, LFO3 RATE**, czyli tempo innego
 LFO (jedno LFO może przyspieszać i zwalniać drugie). Cel działa tylko wtedy, gdy dotyczy bieżącego źródła: na
-przykład CUTOFF porusza filtrem VA, a FOCUS działa przy HARM.
+przykład CUTOFF porusza filtrem VA, a FOCUS działa przy HARM. Do tego **LIVE TONE, LIVE MOVE, LIVE CHAR, LIVE DENSITY**
+(źródła LIVE) i **EQ1–EQ3 FREQ, GAIN, WIDTH**, czyli pasma korektora: np. wolne LFO na EQ2 FREQ przy podbitym dzwonie
+daje „samogłoskowe” przesuwanie barwy przy każdym źródle.
 
 Fabrycznie slot 8 to **WHEEL → POSITION +100 %**: kółko modulacji przewija sample. Presety mogą to zmienić.
 
@@ -394,6 +399,25 @@ jak są zrobione.
 | 2 | **SUB** | 0–100 % | dokłada to samo widmo oktawę niżej |
 | 3 | **SHIMMER** | 0–100 % | dokłada to samo widmo oktawę wyżej |
 | 4 | **SIZE** | 23–186 ms | to samo co SIZE na stronie sampla, dostępne przy każdym źródle |
+
+### EQ 1, EQ 2, EQ 3 (FX): korektor parametryczny
+
+Trzy pasma korektora działają na samym końcu, na widmie, razem z TILT. Strona EQ pokazuje na tle widma krzywą
+całego korektora (biała linia, ±18 dB) i punkty pasm, a pasmo tej strony jest wyróżnione. Korektor jest opcjonalny:
+fabrycznie pasma mają 0 dB i nic nie zmieniają (niska półka 150 Hz, dzwon 1 kHz, wysoka półka 5 kHz).
+
+![EQ 3 jako wysoka półka −5,7 dB](img/manual/eq.png)
+
+| Gałka | Parametr | Zakres | Co robi |
+|---|---|---|---|
+| 1 | **FREQ** | 20 Hz – 20 kHz | częstotliwość pasma (przy cięciu: punkt zagięcia) |
+| 2 | **GAIN** | −18 … +18 dB | podbicie albo wycięcie (półki i dzwon) |
+| 3 | **WIDTH** | 0,25–4 oktawy | szerokość dzwonu, łagodność półki |
+| 4 | **TYPE** | OFF, BELL, LOW SHELF, HIGH SHELF, LOW CUT, HIGH CUT | kształt pasma; cięcia mają 12 dB/okt i nie używają GAIN |
+
+FREQ, GAIN i WIDTH każdego pasma są celami w matrycy (EQ1 FREQ … EQ3 WIDTH), więc korektorem można poruszać jak
+każdym parametrem. Kilka presetów (np. HARM BLOOM, BELL CLOUD, DAWN) używa EQ 3 jako łagodnej wysokiej półki, żeby
+zmiękczyć górę.
 
 ### SETUP (GLO)
 

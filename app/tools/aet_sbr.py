@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
 # Copyright (C) 2026 fm1-aether contributors
+# AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE).
 """AETHER's sample preparation, shared by gen_source.py and tools/aether_load.py (needs numpy):
 
   resample(x, rate, to)          band-limited (windowed-sinc low-pass, then interpolation)

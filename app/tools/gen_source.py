@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MPL-2.0
 # Copyright (C) 2026 fm1-aether contributors
+# AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE).
 """AETHER's built-in samples: sixteen short sounds synthesized here, at build time, so the firmware has material to
 stretch before any sample is loaded, and no recording's licence to carry. Each is made at 44.1 kHz, then kept at
 11025 Hz as IMA ADPCM (app/tools/aet_adpcm.py) with an SBR envelope of its band above 4.9 kHz (app/tools/aet_sbr.py):
@@ -24,7 +25,7 @@ import aet_sbr  # noqa: E402
 
 FS = 44100
 KEEP = 11025
-VERSION = "v4"
+VERSION = "v5"
 
 
 def hz(note):
@@ -257,10 +258,13 @@ def rain(rng):
 
 
 def birds(rng):
+    """chirps spread over the whole length (no gap of silence for the stretch to make endless) over a soft bed of
+    leaves and air"""
     t = tt(3.0)
-    out = np.zeros_like(t)
-    for _ in range(18):
-        t0 = rng.uniform(0, 2.6)
+    bed = rng.normal(0, 1.0, len(t))
+    out = 0.06 * svf_bp(bed, 900, 0.7) + 0.025 * svf_bp(bed, 2600, 1.5)
+    for i in range(30):
+        t0 = (i + rng.uniform(0, 1)) * 2.85 / 30
         f, span, dur = rng.uniform(2500, 5000), rng.uniform(-0.5, 0.6), rng.uniform(0.04, 0.15)
         d = np.clip((t - t0) / dur, 0, 1)
         freq = f * (1 + span * d + 0.15 * np.sin(2 * np.pi * d * rng.integers(1, 4)))

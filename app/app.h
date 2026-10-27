@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-aether contributors */
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE). */
 /* AETHER: a PaulStretch-style spectral synthesizer for the M-VAVE FM-1, on fm1-base.
  * This header is the app's half of the contract with the platform (base/device/unity.c, base/host/plat_host.c). */
 #pragma once

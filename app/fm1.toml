@@ -14,4 +14,4 @@ ble = false                    # no Bluetooth: its RAM goes to the spectral fram
 tagline = "a PaulStretch-style spectral synthesizer for the FM-1"
 repo = "https://github.com/twaroshinto/AEther"
 licence = "MPL-2.0"
-credits = "Built on fm1-base and felucca-bsp. The idea of random phases over long windows is Nasca Octavian Paul's (PaulStretch, PADsynth)."
+credits = "AI-generated code (Claude, Anthropic): no warranty, use at your own risk. Built on fm1-base and felucca-bsp. The idea of random phases over long windows is Nasca Octavian Paul's (PaulStretch, PADsynth)."

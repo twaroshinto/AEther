@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0
- * Copyright (C) 2026 fm1-aether contributors */
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE). */
 /* AETHER on the FM-1: the panel, the screen, MIDI and the sample loader around the engine (dsp/aether.c).
  * Part of fm1-base's unity build (base/device/unity.c, base/host/plat_host.c), after the platform: gfx.c, announce.c
  * and lib/touch.c are in scope. Structure from fm1-base's template.
@@ -43,12 +44,14 @@ enum { P_STRETCH, P_POSITION, P_SPREAD, P_SIZE, P_BRIGHT, P_BAND, P_INHARM, P_OD
        P_EV_DRIFT,                       /* EVOLVE: the built-in slow wander (drift_step) */
        P_EV_VARIANT,                     /* EVOLVE: 0 the preset's own motion, 1 .. 99 a made one (motion_make) */
        P_L_TONE, P_L_MOVE, P_L_CHAR, P_L_DENS,   /* the live sources (dsp/live.h): their four knobs */
-       P_CORE2,                          /* SETUP: the second core (at the next power-on) */
+       P_EQ0,                            /* the EQ: FREQ, GAIN, WIDTH, TYPE a band (AET_EQ of them) */
+       P_CORE2 = P_EQ0 + 4 * AET_EQ,     /* SETUP: the second core (at the next power-on) */
        NP };
 #define P_HENV(k, i) (P_HENV0 + 4 * (k) + (i))
 #define P_LFO(k, i) (P_LFO0 + 4 * (k) + (i))
 #define P_MENV(k, i) (P_MENV0 + 4 * (k) + (i))
 #define P_MX(s, i) (P_MX0 + 3 * (s) + (i))
+#define P_EQ(b, i) (P_EQ0 + 4 * (b) + (i))
 #define P_NONE 0xFFu                     /* an empty knob on a page */
 enum { LFO_SINE, LFO_TRI, LFO_SAW_UP, LFO_SAW_DOWN, LFO_SQUARE, LFO_SH, LFO_DRIFT, NLFO_SHAPE };
 static const char *const LFO_SHAPE_NAME[NLFO_SHAPE] = {"SINE", "TRIANGLE", "SAW UP", "SAW DOWN", "SQUARE",
@@ -60,16 +63,20 @@ static const char *const MS_NAME[NMS] = {"OFF", "LFO 1", "LFO 2", "LFO 3", "ENV 
 /* ... and what they may move: these parameters (their knobs' values, so every mapping holds) */
 enum { D_OFF, D_STRETCH, D_POSITION, D_SPREAD, D_TILT, D_SUB, D_SHIMMER, D_WIDTH, D_LEVEL, D_BRIGHT, D_BAND,
        D_INHARM, D_ODD, D_SHAPE, D_CUTOFF, D_RESO, D_SLOPE, D_EVENODD, D_FOCUS, D_BOOST, D_HBAND, D_RATE1, D_RATE2,
-       D_RATE3, D_LTONE, D_LMOVE, D_LCHAR, D_LDENS, NDEST };
+       D_RATE3, D_LTONE, D_LMOVE, D_LCHAR, D_LDENS, D_EQ1F, D_EQ1G, D_EQ1W, D_EQ2F, D_EQ2G, D_EQ2W, D_EQ3F, D_EQ3G,
+       D_EQ3W, NDEST };
 static const uint8_t MOD_DEST[NDEST] = {P_NONE, P_STRETCH, P_POSITION, P_SPREAD, P_TILT, P_SUB, P_SHIMMER, P_WIDTH,
                                         P_LEVEL, P_BRIGHT, P_BAND, P_INHARM, P_ODD, P_SHAPE, P_CUTOFF, P_RESO,
                                         P_H_SLOPE, P_H_ODD, P_H_FOCUS, P_H_BOOST, P_H_BAND, P_LFO(0, 0), P_LFO(1, 0),
-                                        P_LFO(2, 0), P_L_TONE, P_L_MOVE, P_L_CHAR, P_L_DENS};
+                                        P_LFO(2, 0), P_L_TONE, P_L_MOVE, P_L_CHAR, P_L_DENS, P_EQ(0, 0), P_EQ(0, 1),
+                                        P_EQ(0, 2), P_EQ(1, 0), P_EQ(1, 1), P_EQ(1, 2), P_EQ(2, 0), P_EQ(2, 1),
+                                        P_EQ(2, 2)};
 static const char *const DEST_NAME[NDEST] = {"OFF", "STRETCH", "POSITION", "SPREAD", "TILT", "SUB", "SHIMMER",
                                              "WIDTH", "LEVEL", "BRIGHT", "BAND", "INHARM", "ODD", "SHAPE", "CUTOFF",
                                              "RESO", "SLOPE", "EVEN/ODD", "FOCUS", "BOOST", "H BAND", "LFO1 RATE",
                                              "LFO2 RATE", "LFO3 RATE", "LIVE TONE", "LIVE MOVE", "LIVE CHAR",
-                                             "LIVE DENSITY"};
+                                             "LIVE DENSITY", "EQ1 FREQ", "EQ1 GAIN", "EQ1 WIDTH", "EQ2 FREQ",
+                                             "EQ2 GAIN", "EQ2 WIDTH", "EQ3 FREQ", "EQ3 GAIN", "EQ3 WIDTH"};
 typedef struct {
     const char *name;
     uint8_t max;                         /* the values are 0 .. max (127 mostly) */
@@ -78,6 +85,7 @@ typedef struct {
 #define LFO_DEF {"RATE", 127}, {"SHAPE", NLFO_SHAPE - 1u}, {"FADE", 127}, {"SYNC", 1}
 #define MENV_DEF {"ATTACK", 127}, {"DECAY", 127}, {"SUSTAIN", 127}, {"RELEASE", 127}
 #define MX_DEF {"SOURCE", NMS - 1u}, {"DEST", NDEST - 1u}, {"AMOUNT", 127}
+#define EQ_DEF {"FREQ", 127}, {"GAIN", 127}, {"WIDTH", 127}, {"TYPE", AET_NEQ_TYPE - 1u}
 static const pdef_t PDEF[NP] = {
     {"STRETCH", 127}, {"POSITION", 127}, {"SPREAD", 127}, {"SIZE", AET_NSIZE - 1u},
     {"BRIGHT", 127}, {"BAND", 127}, {"INHARM", 127}, {"ODD", 127},
@@ -93,6 +101,7 @@ static const pdef_t PDEF[NP] = {
     {"SLOT", NMX - 1u},
     {"DEPTH", 127}, {"SPEED", 127}, {"DRIFT", 127}, {"VARIANT", 99},
     {"TONE", 127}, {"MOVE", 127}, {"CHARACTER", 127}, {"DENSITY", 127},
+    EQ_DEF, EQ_DEF, EQ_DEF,
     {"2ND CORE", 1},
 };
 /* the factory values; a preset changes some of them */
@@ -107,6 +116,8 @@ static const uint8_t PDEFAULT[NP] = {
     0,
     64, 64, 40, 0,                                                  /* EVOLVE: 100 %, 1x, some drift, the preset's */
     64, 64, 64, 64,                                                 /* the live sources: half way */
+    37, 64, 64, AET_EQ_LOSHELF, 72, 64, 64, AET_EQ_BELL, 101, 64, 64, AET_EQ_HISHELF,   /* the EQ: 150 Hz, 1 kHz,
+                                                                                         * 5 kHz, flat (0 dB) */
     0,
 };
 
@@ -134,10 +145,10 @@ static const char *slot_name(uint32_t s)
            s < SLOT_USER ? aet_builtin[s - SLOT_SMP0].name : s == SLOT_USER ? "USER" : LIVE_NAME[(s - SLOT_LIVE0) % LIVE_N];
 }
 enum { PG_SOURCE, PG_TONE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, PG_AMP, PG_LFO1, PG_LFO2, PG_LFO3, PG_MENV1,
-       PG_MENV2, PG_MATRIX, PG_COLOR, PG_SETUP, PG_EVOLVE, NPAGE };
+       PG_MENV2, PG_MATRIX, PG_COLOR, PG_SETUP, PG_EVOLVE, PG_EQ1, PG_EQ2, PG_EQ3, NPAGE };
 static const char *const PAGE_NAME[NPAGE] = {"SOURCE", "TONE", "HARM ENV A", "HARM ENV B", "HARM ENV C",
                                              "HARM ENV D", "AMP", "LFO 1", "LFO 2", "LFO 3", "MOD ENV 1", "MOD ENV 2",
-                                             "MATRIX", "COLOR", "SETUP", "EVOLVE"};
+                                             "MATRIX", "COLOR", "SETUP", "EVOLVE", "EQ 1", "EQ 2", "EQ 3"};
 /* The pages by button, in the order its presses step through them (and SEL / SELECT through all, group by group):
  * EDIT the sound's source (HARM: TONE and its harmonic envelopes too), ENV the envelopes, LFO the LFOs and the
  * matrix that routes them, SEQ how the sound moves over time (EVOLVE), FX the colour, GLO the global setup. A
@@ -150,7 +161,7 @@ static const uint8_t GROUP_PAGES[NGROUP][7] = {
     {PG_AMP, PG_MENV1, PG_MENV2, NPAGE},
     {PG_LFO1, PG_LFO2, PG_LFO3, PG_MATRIX, NPAGE},
     {PG_EVOLVE, NPAGE},
-    {PG_COLOR, NPAGE},
+    {PG_COLOR, PG_EQ1, PG_EQ2, PG_EQ3, NPAGE},
     {PG_SETUP, NPAGE},
 };
 static const uint8_t PAGE_SAMPLE[4] = {P_STRETCH, P_POSITION, P_SPREAD, P_SIZE};
@@ -165,9 +176,9 @@ static const uint8_t PAGE_COLOR[4] = {P_TILT, P_SUB, P_SHIMMER, P_SIZE};
 typedef struct {
     const char *name;
     uint8_t slot;
-    uint8_t ov[48][2];                   /* {parameter + 1, value}, then zeros */
+    uint8_t ov[56][2];                   /* {parameter + 1, value}, then zeros */
 } preset_t;
-#define NPOV 48u
+#define NPOV 56u
 /* a preset: its source, and the parameters it changes from PDEFAULT (O(parameter, value); index + 1, so a
  * zero ends the list) */
 #define O(p, v) {(uint8_t)((p) + 1), (uint8_t)(v)}
@@ -199,7 +210,8 @@ static const preset_t PRESETS[] = {
             O(P_LFO(1, 1), LFO_SINE), O(P_MENV(0, 0), 0), O(P_MENV(0, 1), 109), O(P_MENV(0, 2), 0),
             O(P_MENV(0, 3), 95), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_INHARM), O(P_MX(0, 2), 80),
             O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_TILT), O(P_MX(1, 2), 80), O(P_MX(2, 0), MS_ENV1),
-            O(P_MX(2, 1), D_BRIGHT), O(P_MX(2, 2), 89)}},
+            O(P_MX(2, 1), D_BRIGHT), O(P_MX(2, 2), 89),
+            /* softer */ O(P_BRIGHT, 70), O(P_TILT, 60), O(P_EQ(2, 0), 101), O(P_EQ(2, 1), 32), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF)}},
     {"ANALOG MIST", SLOT_VA, {O(P_SUB, 30), O(P_CUTOFF, 72), O(P_MOTION, 45),
             /* motion */ O(P_EV_DRIFT, 50), O(P_LFO(0, 0), 17), O(P_LFO(0, 1), LFO_TRI), O(P_LFO(1, 0), 8),
             O(P_LFO(1, 1), LFO_DRIFT), O(P_LFO(2, 0), 31), O(P_LFO(2, 1), LFO_SINE), O(P_MX(0, 0), MS_LFO1),
@@ -218,7 +230,10 @@ static const preset_t PRESETS[] = {
                                O(P_MX(1, 0), MS_ENV2), O(P_MX(1, 1), D_SLOPE), O(P_MX(1, 2), 20),
             /* motion */ O(P_EV_DRIFT, 40), O(P_H_BOOST, 90), O(P_LFO(0, 0), 17), O(P_LFO(0, 1), LFO_SINE),
             O(P_LFO(1, 0), 7), O(P_LFO(1, 1), LFO_DRIFT), O(P_MX(2, 0), MS_LFO2), O(P_MX(2, 1), D_FOCUS),
-            O(P_MX(2, 2), 86)}},
+            O(P_MX(2, 2), 86),
+            /* softer: a gentler LFO 1 on TILT, a steeper slope, less of the high bloom, a high shelf -12 dB */
+            O(P_H_SLOPE, 72), O(P_H_COUNT, 23), O(P_EQ(2, 1), 22), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF), O(P_HENV(0, 3), 70),
+            O(P_EQ(2, 0), 90), O(P_TILT, 50), O(P_MX(0, 2), 76), O(P_LEVEL, 112)}},
     {"HARM BELL", SLOT_HARM, {O(P_H_COUNT, 23), O(P_H_SLOPE, 25), O(P_H_FOCUS, 4), O(P_H_BOOST, 100), O(P_H_WIDTH, 15),
                               O(P_HENV(0, 0), AET_HT_HIGH), O(P_HENV(0, 1), 5), O(P_HENV(0, 2), 70), O(P_HENV(0, 3), 0),
                               O(P_HENV(1, 0), 3), O(P_HENV(1, 1), 5), O(P_HENV(1, 2), 90), O(P_HENV(1, 3), 20),
@@ -254,7 +269,8 @@ static const preset_t PRESETS[] = {
                             O(P_MX(3, 0), MS_VEL), O(P_MX(3, 1), D_BOOST), O(P_MX(3, 2), 90),
                             O(P_MX(4, 0), MS_LFO3), O(P_MX(4, 1), D_WIDTH), O(P_MX(4, 2), 84),
                             O(P_MX(5, 0), MS_LFO2), O(P_MX(5, 1), D_RATE1), O(P_MX(5, 2), 100),
-            /* motion */ O(P_EV_DRIFT, 40)}},
+            /* motion */ O(P_EV_DRIFT, 40),
+            /* softer */ O(P_H_SLOPE, 48), O(P_EQ(2, 0), 95), O(P_EQ(2, 1), 32), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF)}},
     {"BREATHING GLASS", SLOT_GLASS, {O(P_STRETCH, 90), O(P_ATTACK, 80), O(P_RELEASE, 100), O(P_WIDTH, 120),
                                      O(P_LFO(0, 0), 15), O(P_LFO(0, 1), LFO_SINE), O(P_LFO(0, 2), 90),
                                      O(P_LFO(1, 0), 35), O(P_LFO(1, 1), LFO_SH),
@@ -268,16 +284,19 @@ static const preset_t PRESETS[] = {
     {"GLASS RAIN", SLOT_GLASS, {O(P_STRETCH, 60), O(P_SPREAD, 10), O(P_ATTACK, 70), O(P_RELEASE, 96), O(P_WIDTH, 120), O(P_LEVEL, 90), O(P_TILT, 70), O(P_SHIMMER, 40),
             /* motion */ O(P_EV_DRIFT, 50), O(P_LFO(0, 0), 29), O(P_LFO(0, 1), LFO_SINE), O(P_LFO(1, 0), 9),
             O(P_LFO(1, 1), LFO_DRIFT), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_SHIMMER), O(P_MX(0, 2), 83),
-            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_POSITION), O(P_MX(1, 2), 89)}},
+            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_POSITION), O(P_MX(1, 2), 89),
+            /* softer */ O(P_TILT, 58), O(P_SHIMMER, 25), O(P_EQ(2, 0), 99), O(P_EQ(2, 1), 43), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF)}},
     {"HARP DREAM", SLOT_STRING, {O(P_STRETCH, 45), O(P_ATTACK, 60), O(P_WIDTH, 120), O(P_SUB, 20),
             /* motion */ O(P_EV_DRIFT, 50), O(P_LFO(0, 0), 15), O(P_LFO(0, 1), LFO_TRI), O(P_LFO(1, 0), 4),
             O(P_LFO(1, 1), LFO_DRIFT), O(P_LFO(2, 0), 39), O(P_LFO(2, 1), LFO_SINE), O(P_MX(0, 0), MS_LFO1),
             O(P_MX(0, 1), D_SPREAD), O(P_MX(0, 2), 86), O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_POSITION),
-            O(P_MX(1, 2), 83), O(P_MX(2, 0), MS_LFO3), O(P_MX(2, 1), D_WIDTH), O(P_MX(2, 2), 77)}},
+            O(P_MX(1, 2), 83), O(P_MX(2, 0), MS_LFO3), O(P_MX(2, 1), D_WIDTH), O(P_MX(2, 2), 77),
+            /* softer */ O(P_TILT, 50), O(P_EQ(2, 0), 95), O(P_EQ(2, 1), 32), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF)}},
     {"WIND TUNNEL", SLOT_WIND, {O(P_STRETCH, 70), O(P_SPREAD, 50), O(P_ATTACK, 90), O(P_RELEASE, 96), O(P_WIDTH, 127), O(P_LEVEL, 100), O(P_TILT, 50),
             /* motion */ O(P_EV_DRIFT, 70), O(P_LFO(0, 0), 25), O(P_LFO(0, 1), LFO_DRIFT), O(P_LFO(1, 0), 17),
             O(P_LFO(1, 1), LFO_SINE), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_TILT), O(P_MX(0, 2), 86),
-            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_SPREAD), O(P_MX(1, 2), 80)}},
+            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_SPREAD), O(P_MX(1, 2), 80),
+            /* softer */ O(P_TILT, 40), O(P_EQ(2, 0), 95), O(P_EQ(2, 1), 32), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF), O(P_LEVEL, 115)}},
     {"FELT DREAM", SLOT_PIANO, {O(P_STRETCH, 58), O(P_ATTACK, 70), O(P_RELEASE, 96), O(P_TILT, 56), O(P_SUB, 20),
             /* motion */ O(P_EV_DRIFT, 40), O(P_LFO(0, 0), 9), O(P_LFO(0, 1), LFO_SINE), O(P_MENV(0, 0), 115),
             O(P_MENV(0, 1), 123), O(P_MENV(0, 2), 76), O(P_MENV(0, 3), 105), O(P_MX(0, 0), MS_LFO1),
@@ -291,17 +310,21 @@ static const preset_t PRESETS[] = {
     {"TANPURA", SLOT_DRONE, {O(P_STRETCH, 50), O(P_ATTACK, 60), O(P_RELEASE, 100), O(P_TILT, 46), O(P_SUB, 20),
             /* motion */ O(P_EV_DRIFT, 40), O(P_LFO(0, 0), 29), O(P_LFO(0, 1), LFO_SINE), O(P_LFO(1, 0), 13),
             O(P_LFO(1, 1), LFO_DRIFT), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_SHIMMER), O(P_MX(0, 2), 83),
-            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_SPREAD), O(P_MX(1, 2), 80)}},
+            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_SPREAD), O(P_MX(1, 2), 80),
+            /* softer */ O(P_TILT, 42), O(P_EQ(2, 0), 95), O(P_EQ(2, 1), 43), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF)}},
     {"RAIN ROOM", SLOT_RAIN, {O(P_STRETCH, 75), O(P_POSITION, 10), O(P_SPREAD, 40), O(P_RELEASE, 96), O(P_WIDTH, 127), O(P_TILT, 50),
             /* motion */ O(P_EV_DRIFT, 60), O(P_LFO(0, 0), 19), O(P_LFO(0, 1), LFO_DRIFT), O(P_LFO(1, 0), 35),
             O(P_LFO(1, 1), LFO_SINE), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_TILT), O(P_MX(0, 2), 83),
-            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_WIDTH), O(P_MX(1, 2), 77)}},
+            O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_WIDTH), O(P_MX(1, 2), 77),
+            /* softer */ O(P_TILT, 38), O(P_EQ(2, 0), 95), O(P_EQ(2, 1), 32), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF), O(P_LEVEL, 112)}},
     {"DAWN", SLOT_BIRDS, {O(P_STRETCH, 70), O(P_SPREAD, 30), O(P_ATTACK, 90), O(P_RELEASE, 100), O(P_WIDTH, 127), O(P_LEVEL, 90), O(P_TILT, 60), O(P_SHIMMER, 30),
             /* motion */ O(P_EV_DRIFT, 60), O(P_LFO(0, 0), 17), O(P_LFO(0, 1), LFO_DRIFT), O(P_LFO(1, 0), 25),
             O(P_LFO(1, 1), LFO_TRI), O(P_MENV(0, 0), 118), O(P_MENV(0, 1), 127), O(P_MENV(0, 2), 89),
             O(P_MENV(0, 3), 105), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_POSITION), O(P_MX(0, 2), 89),
             O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_TILT), O(P_MX(1, 2), 77), O(P_MX(2, 0), MS_ENV1),
-            O(P_MX(2, 1), D_SHIMMER), O(P_MX(2, 2), 89)}},
+            O(P_MX(2, 1), D_SHIMMER), O(P_MX(2, 2), 89),
+            /* softer */ O(P_TILT, 52), O(P_SHIMMER, 20), O(P_EQ(2, 0), 99), O(P_EQ(2, 1), 43), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF), O(P_TILT, 36), O(P_SUB, 30), O(P_EQ(2, 0), 90),
+            O(P_EQ(2, 1), 22), O(P_LEVEL, 118)}},
     {"TAPE MEMORY", SLOT_TAPE, {O(P_STRETCH, 60), O(P_SPREAD, 10), O(P_RELEASE, 96), O(P_WIDTH, 100), O(P_TILT, 52), O(P_SUB, 30),
             /* motion */ O(P_EV_DRIFT, 50), O(P_LFO(0, 0), 31), O(P_LFO(0, 1), LFO_DRIFT), O(P_LFO(1, 0), 9),
             O(P_LFO(1, 1), LFO_SINE), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_TILT), O(P_MX(0, 2), 77),
@@ -333,7 +356,8 @@ static const preset_t PRESETS[] = {
                 O(P_ATTACK, 90), O(P_RELEASE, 100), O(P_WIDTH, 110), O(P_SUB, 25),
                 O(P_EV_DRIFT, 50), O(P_LFO(0, 0), 15), O(P_LFO(0, 1), LFO_SINE), O(P_LFO(1, 0), 7),
                 O(P_LFO(1, 1), LFO_DRIFT), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_TILT), O(P_MX(0, 2), 77),
-                O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_LCHAR), O(P_MX(1, 2), 83)}},
+                O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_LCHAR), O(P_MX(1, 2), 83),
+            /* softer */ O(P_L_TONE, 40), O(P_L_CHAR, 20), O(P_EQ(2, 0), 95), O(P_EQ(2, 1), 32), O(P_EQ(2, 2), 64), O(P_EQ(2, 3), AET_EQ_HISHELF)}},
     {"BELL FIELD", SLOT_LIVE0 + 3u, {O(P_L_TONE, 80), O(P_L_MOVE, 60), O(P_L_CHAR, 127), O(P_L_DENS, 70),
                 O(P_ATTACK, 60), O(P_RELEASE, 105), O(P_WIDTH, 127), O(P_EV_DRIFT, 40),
                 O(P_LFO(0, 0), 9), O(P_LFO(0, 1), LFO_DRIFT), O(P_LFO(1, 0), 25), O(P_LFO(1, 1), LFO_SINE),
@@ -346,7 +370,7 @@ static const preset_t PRESETS[] = {
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
 
-#define SET_MAGIC 0x32544541u            /* "AET2": the settings record; another magic loads a preset */
+#define SET_MAGIC 0x33544541u            /* "AET3": the settings record; another magic loads a preset */
 typedef struct {
     uint32_t magic;
     uint8_t v[NP];
@@ -380,6 +404,9 @@ static float bipolar(float v) { return fm_clampf((v - 64.0f) / 63.0f, -1.0f, 1.0
 static float lfo_hz(float v) { return 0.01f * fm_exp2f(v * (10.0f / 127.0f)); }       /* 0.01 .. 10 Hz */
 static float ev_speed_of(float v) { return fm_exp2f((v - 64.0f) * (2.0f / 63.0f)); }    /* 1/4 .. 4 */
 static float ev_depth_of(float v) { return v <= 64.0f ? v / 64.0f : 1.0f + (v - 64.0f) / 63.0f; }   /* 0 .. 2 */
+static float eq_hz_of(float v) { return 20.0f * fm_exp2f(v * (10.0f / 127.0f)); }          /* 20 Hz .. 20.5 kHz */
+static float eq_db_of(float v) { return 18.0f * fm_clampf((v - 64.0f) / 63.0f, -1.0f, 1.0f); }   /* -18 .. 18 dB */
+static float eq_oct_of(float v) { return 0.25f * fm_exp2f(v * (4.0f / 127.0f)); }       /* 1/4 .. 4 octaves */
 
 /* ---------------------------------------------------------------- modulation --- */
 /* The modulation matrix: eight slots, each a source (an LFO, an envelope, what the player does), a destination
@@ -583,6 +610,12 @@ static void map_params(void)
     lg.move = unit(v[P_L_MOVE]);
     lg.character = unit(v[P_L_CHAR]);
     lg.density = unit(v[P_L_DENS]);
+    for (k = 0; k < AET_EQ; k++) {
+        p->eq_type[k] = set.v[P_EQ(k, 3)];
+        p->eq_hz[k] = eq_hz_of(v[P_EQ(k, 0)]);
+        p->eq_db[k] = eq_db_of(v[P_EQ(k, 1)]);
+        p->eq_oct[k] = eq_oct_of(v[P_EQ(k, 2)]);
+    }
     va.shape = unit(v[P_SHAPE]);
     va.cutoff = unit(v[P_CUTOFF]);
     va.motion = unit(v[P_MOTION]);
@@ -1248,6 +1281,30 @@ static void value_text(uint32_t p, char *b)
                 tenths_text(x, b);
             }
             text_cat(b, "X");
+        } else if (p >= P_EQ0 && p < P_EQ0 + 4u * AET_EQ) {   /* the EQ: FREQ, GAIN, WIDTH, TYPE */
+            static const char *const EQ_TYPE[AET_NEQ_TYPE] = {"OFF", "BELL", "LOW SHELF", "HIGH SHELF", "LOW CUT",
+                                                              "HIGH CUT"};
+            uint32_t i = (p - P_EQ0) % 4u;
+            if (i == 0u) {
+                float hz = eq_hz_of((float)v);
+                if (hz < 1000.0f) {
+                    int_text((int32_t)(hz + 0.5f), b);
+                    text_cat(b, " HZ");
+                } else {
+                    tenths_text(hz / 1000.0f, b);
+                    text_cat(b, " KHZ");
+                }
+            } else if (i == 1u) {
+                float db = eq_db_of((float)v);
+                text_cat(b, db >= 0.0f ? "+" : "-");
+                tenths_text(fm_fabsf(db), b + 1);
+                text_cat(b, " DB");
+            } else if (i == 2u) {
+                tenths_text(eq_oct_of((float)v), b);
+                text_cat(b, " OCT");
+            } else {
+                text_cat(b, EQ_TYPE[v < AET_NEQ_TYPE ? v : 0u]);
+            }
         } else if (p == P_EV_VARIANT) {
             if (v == 0u)
                 text_cat(b, "PRESET");
@@ -1314,6 +1371,10 @@ static const uint8_t *page_params(void)
         pp[0] = P_MSLOT;
         for (k = 0; k < 3u; k++)
             pp[k + 1u] = (uint8_t)P_MX(set.v[P_MSLOT] % NMX, k);
+        return pp;
+    case PG_EQ1: case PG_EQ2: case PG_EQ3:
+        for (k = 0; k < 4u; k++)
+            pp[k] = (uint8_t)P_EQ(ui.page - PG_EQ1, k);
         return pp;
     case PG_EVOLVE:
         pp[0] = P_EV_DEPTH;
@@ -1959,6 +2020,8 @@ static void draw_harmonics(void)
     const aet_params_t *p = &eng.p;
     uint32_t h, k, env = ui.page >= PG_ENVA && ui.page <= PG_ENVD ? (uint32_t)(ui.page - PG_ENVA) : 99u;
     float top = 0.0f, lv[33];
+    /* the bars' room: all of it, or (a HARM ENV page) below the envelope's strip */
+    const int32_t bar_h = env < AET_HENV ? SPEC_H - 14 - 34 : SPEC_H - 14;
     cv_begin(240, SPEC_H, C_BLACK);
     for (h = 1; h <= 32u; h++) {
         lv[h] = h <= p->h_count ? aet_harm_level(p, h, 1.0f) : 0.0f;
@@ -1971,7 +2034,7 @@ static void draw_harmonics(void)
         for (k = 0; k < AET_HENV; k++)
             if (aet_harm_takes(p->h_target[k], h))
                 c = k == env ? C_WHITE : (env == 99u ? C_WHITE : C_AMB);
-        ht = clamp((int32_t)((db + 48.0f) * (float)(SPEC_H - 14) / 48.0f), 0, SPEC_H - 14);
+        ht = clamp((int32_t)((db + 48.0f) * (float)bar_h / 48.0f), 0, bar_h);
         if (ht > 0)
             cv_rect(x, SPEC_H - 10 - ht, 6, ht, c);
         if (h == 1u || h == 8u || h == 16u || h == 32u) {
@@ -1980,9 +2043,14 @@ static void draw_harmonics(void)
             cv_text(h == 32u ? 226 : x, SPEC_H - 9, &FONT_XS, t, C_DIM);
         }
     }
-    if (env < AET_HENV && p->h_target[env]) {   /* the envelope: 0 .. its attack + decay + 1 s, top right */
+    if (env < AET_HENV) {                /* the envelope: 0 .. its attack + decay + 1 s, in the strip at the top */
         float span = p->h_att[env] + p->h_dec[env] + 1.0f;
-        int32_t x0 = 120, w = 116, y0 = 2, hh = 34, i, py = y0 + hh;
+        int32_t x0 = 2, w = 236, y0 = 2, hh = 26, i, py = y0 + hh;
+        if (!p->h_target[env]) {
+            cv_text(4, 8, &FONT_XS, "TARGET OFF: TURN KNOB 1", C_DIM);
+            cv_blit(0, SPEC_Y);
+            return;
+        }
         cv_rect(x0, y0 + hh, w, 1, C_LINE);
         for (i = 0; i <= w; i++) {
             int32_t y = y0 + hh - (int32_t)(aet_harm_env(p, env, span * (float)i / (float)w) * (float)hh);
@@ -1995,14 +2063,18 @@ static void draw_harmonics(void)
 }
 
 /* what a source moves, from the matrix, as lines "> FOCUS +73%" from y down (at most four) */
-static void draw_targets(uint32_t src, int32_t y)
+static void draw_targets(uint32_t src, int32_t y)   /* two lines at most (then "+N MORE"): the curve is below */
 {
-    uint32_t k, n = 0;
+    uint32_t k, n = 0, more = 0;
     char t[32];
-    for (k = 0; k < NMX && n < 4u; k++) {
+    for (k = 0; k < NMX; k++) {
         const uint8_t *m = &set.v[P_MX(k, 0)];
         if (m[0] != src || !m[1])
             continue;
+        if (n == 2u) {
+            more++;
+            continue;
+        }
         t[0] = 0;
         text_cat(t, "> ");
         text_cat(t, DEST_NAME[m[1] % NDEST]);
@@ -2015,8 +2087,15 @@ static void draw_targets(uint32_t src, int32_t y)
         cv_text(4, y + (int32_t)n * 12, &FONT_XS, t, C_WHITE);
         n++;
     }
+    if (more) {
+        t[0] = '+';
+        int_text((int32_t)more, t + 1);
+        text_cat(t, " MORE");
+        cv_text(190, y + 12, &FONT_XS, t, C_GRAY);
+    }
     if (!n)
-        cv_text(4, y, &FONT_XS, "> NOTHING YET: SET IT ON THE MATRIX (GLO)", C_DIM);
+        cv_text(4, y, &FONT_XS, src >= MS_ENV1 ? "> NOTHING YET: HOLD ENV, TURN A KNOB" :
+                                                 "> NOTHING YET: HOLD LFO, TURN A KNOB", C_DIM);
 }
 
 /* LFO 1-3: one cycle of the wave and where it is now; MOD ENV 1-2: the ADSR and where it is; both: what they move */
@@ -2024,7 +2103,7 @@ static void draw_mod(void)
 {
     int is_env = ui.page == PG_MENV1 || ui.page == PG_MENV2;
     uint32_t k = is_env ? ui.page - PG_MENV1 : ui.page - PG_LFO1;
-    int32_t i, mid = 62, amp = 34, py = mid;
+    int32_t i, mid = 68, amp = 36, py = mid;   /* (below the routes' two lines) */
     const uint8_t *v = is_env ? &set.v[P_MENV(k, 0)] : &set.v[P_LFO(k, 0)];
     float a = 0, d = 0, sus = 0, r = 0, span = 1;
     cv_begin(240, SPEC_H, C_BLACK);
@@ -2034,8 +2113,8 @@ static void draw_mod(void)
         sus = unit((float)v[2]);
         r = release_of((float)v[3]);
         span = a + d + r + 0.25f * (a + d + r);
-        mid = SPEC_H - 6;
-        amp = 64;
+        mid = SPEC_H - 4;
+        amp = 72;
     }
     cv_rect(0, mid, 240, 1, C_LINE);
     for (i = 0; i <= 236; i++) {
@@ -2055,9 +2134,10 @@ static void draw_mod(void)
             py = yy;
         }
     }
-    if (is_env) {
+    cv_rect(0, 27, 240, 1, C_LINE);      /* the routes above, the curve below */
+    if (is_env) {                        /* where it is now: a mark on the left edge, at its level */
         int32_t yy = mid - (int32_t)(menv[k].level * (float)amp);
-        cv_rect(2, yy, 236, 1, C_WHITE);
+        cv_rect(0, yy - 1, 6, 3, C_WHITE);
     } else {
         int32_t x = (int32_t)(lfo[k].ph * 236.0f) + 1, yy = mid - (int32_t)(lfo[k].out * (float)amp);
         cv_rect(x - 2, yy - 2, 5, 5, C_WHITE);
@@ -2186,7 +2266,7 @@ static void help_draw(void)
                                        {B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC}};
     static const char *const LABEL[NB] = {"FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ",
                                           "PLAY", "REC"};
-    static const char *const DOES[NB][2] = {{"COLOR", ""}, {"NEXT", "PAGE"}, {"AMP", "MOD ENV"}, {"LFO 1-3", "MATRIX"},
+    static const char *const DOES[NB][2] = {{"COLOR", "EQ 1-3"}, {"NEXT", "PAGE"}, {"AMP", "MOD ENV"}, {"LFO 1-3", "MATRIX"},
                                             {"SOURCE", "TONE"}, {"SETUP", ""}, {"MAIN", "ALL OFF"},
                                             {"SAVE", ""}, {"", ""}, {"EVOLVE", ""}, {"HOLD", ""}, {"FREEZE", ""}};
     static const char *const TIPS[] = {"HOLD LFO OR ENV, TURN A KNOB:", "  IT MODULATES THAT KNOB",
@@ -2258,6 +2338,26 @@ static void draw_spectrum(void)
         h = clamp(h, 0, SPEC_H - 8);
         if (h > 0)
             cv_rect((int32_t)b * 4, SPEC_H - h, 3, h, h > SPEC_H - 30 ? C_WHITE : C_HI);
+    }
+    if (ui.page >= PG_EQ1 && ui.page <= PG_EQ3) {   /* the EQ's curve (+-18 dB), its bands' points: this page's lit */
+        int32_t x, y0 = SPEC_H / 2, py = 0;
+        cv_rect(0, y0, 240, 1, C_GRAY);
+        for (x = 0; x < 240; x += 2) {
+            float hz = 40.0f * fm_exp2f((float)x * (8.643856f / 240.0f));
+            int32_t y = y0 - (int32_t)(aet_eq_db(&eng.p, hz) * ((float)(SPEC_H / 2 - 6) / 18.0f));
+            y = clamp(y, 2, SPEC_H - 2);
+            if (x)
+                cv_line(x - 2, py, x, y, C_WHITE);
+            py = y;
+        }
+        for (b = 0; b < AET_EQ; b++)
+            if (eng.p.eq_type[b] != AET_EQ_OFF) {
+                float lx = fm_log2f(eng.p.eq_hz[b] / 40.0f) * (240.0f / 8.643856f);
+                int32_t y = y0 - (int32_t)(aet_eq_db(&eng.p, eng.p.eq_hz[b]) * ((float)(SPEC_H / 2 - 6) / 18.0f));
+                int on = b == (uint32_t)(ui.page - PG_EQ1);
+                cv_rect(clamp((int32_t)lx, 0, 236) - (on ? 3 : 2), clamp(y, 4, SPEC_H - 4) - (on ? 3 : 2), on ? 7 : 5,
+                        on ? 7 : 5, on ? C_WHITE : C_GRAY);
+            }
     }
     if (slot_sample(set.slot) && eng.smp.len) {
         int32_t x = (int32_t)(eng.scan / (float)eng.smp.len * 238.0f), x0 = (int32_t)(unit(mod_v[P_POSITION]) * 238.0f);
