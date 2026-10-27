@@ -1,13 +1,23 @@
 # the modulation matrix (LFO's last page), its sources (LFOs, envelopes, velocity, the wheel), and the overload guard
 wait 600
+# GLACIER's own motion: DRIFT off (EVOLVE, SEQ), so the routes below are all that moves TILT and SPREAD
+tap SEQ
+wait 30
+expect page 15
+spin K3 -127
+wait 30
+expect moving 1
 tap LFO
 tap LFO
 tap LFO
 tap LFO
 wait 30
 expect page 12
-# slot 1: LFO 1 > TILT +100 % (source 1, destination 4, amount 127)
+# slot 1: LFO 1 > TILT +100 % (source 1, destination 4, amount 127); GLACIER's LFO 1 is a 45 s triangle, at its
+# start: TILT pushed down
+spin K2 -20
 spin K2 1
+spin K3 -30
 spin K3 4
 spin K4 63
 wait 100
@@ -17,10 +27,12 @@ expect v65 127
 wait 3000
 # TILT (parameter 12) moves away from its knob (64)
 expect v12 64
-expect mod12 >80
+expect mod12 <40
 # slot 2: VELOCITY > SPREAD (source 6, destination 3): a hard note opens it
 spin K1 1
+spin K2 -20
 spin K2 6
+spin K3 -30
 spin K3 3
 spin K4 63
 wait 50

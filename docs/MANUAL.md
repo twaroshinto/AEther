@@ -28,13 +28,13 @@ Wszystkie zrzuty pochodzą z emulatora w przeglądarce, w którym działa ten sa
 | 12 | **GLO** | SETUP: ustawienia globalne (drugi rdzeń, bezpiecznik przeciążenia) |
 | 13 | **HOME** | wraca na stronę główną (SOURCE); na niej wycisza wszystkie nuty i wyłącza HOLD; przytrzymany pokazuje mapę przycisków |
 | 14 | **SAVE** | zapisuje ustawienia, przycisk świeci, gdy jest coś niezapisanego |
-| 15 | **SEQ** | na razie nic (nie świeci) |
+| 15 | **SEQ** | EVOLVE: jak dźwięk zmienia się w czasie (głębia i tempo ruchu, dryf, warianty ruchu) |
 | 16 | **PLAY** | HOLD: nuty grają dalej po puszczeniu klawiszy, a nowy akord zastępuje poprzedni |
 | 17 | **REC** | FREEZE: zamraża widmo sampla albo VA w bieżącej chwili (przy PAD i HARM nie działa) |
 | 18 | **OCT− / OCT+** | oktawa klawiatury, ±2 |
 | 19 | klawisze | 27 klawiszy z dynamiką i naciskiem, od F3 (przy oktawie 0) |
 
-ARP i SEQ są na razie wolne, więc nie świecą.
+ARP jest na razie wolny, więc nie świeci.
 
 ## Jak się poruszać
 
@@ -45,6 +45,7 @@ Strony są pogrupowane pod pięcioma przyciskami. Każdy przycisk ma swoje stron
 | **EDIT** | SOURCE (+ TONE, HARM ENV A–D przy HARM) | dźwięk źródła |
 | **ENV** | AMP → MOD ENV 1 → MOD ENV 2 | obwiednie: głośności i dwie modulacyjne |
 | **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX | LFO i matryca, która je rozprowadza |
+| **SEQ** | EVOLVE | jak dźwięk zmienia się w czasie |
 | **FX** | COLOR | barwa: TILT, SUB, SHIMMER, SIZE |
 | **GLO** | SETUP | ustawienia globalne |
 
@@ -64,8 +65,7 @@ pokazuje grupę, w której jesteś. Puść HOME, żeby wrócić.
 ![Mapa przycisków pod przytrzymanym HOME](img/manual/help.png)
 
 **Światła przycisków.** Jasno świeci przycisk grupy, w której jesteś, a także PLAY przy włączonym HOLD, REC przy
-FREEZE i SAVE, gdy są niezapisane zmiany. Przyciski, które coś robią, świecą słabo, a nieużywane (ARP, SEQ) są
-ciemne.
+FREEZE i SAVE, gdy są niezapisane zmiany. Przyciski, które coś robią, świecą słabo, a nieużywany ARP jest ciemny.
 
 **Szybka modulacja.** Przytrzymaj **LFO** (albo **ENV**) i kręć gałką na dowolnej stronie. Ostatnio oglądane LFO
 (albo MOD ENV) zacznie poruszać parametrem pod tą gałką, z siłą, którą wykręcisz. Szczegóły w części o modulacji.
@@ -91,8 +91,8 @@ nie znikną więc przez przypadkowe trącenie gałki. Zapisujesz je przyciskiem 
 - **Cztery parametry** z wartością i paskiem. **Biały znacznik na pasku** oznacza, że parametr jest modulowany i
   pokazuje, gdzie jest w tej chwili. Sama gałka trzyma swoją wartość.
 
-- **Stopka:** oktawa, liczba brzmiących głosów (do 8) i obciążenie procesora. Gdy działa bezpiecznik
-  przeciążenia, w nagłówku pojawia się napis LOAD.
+- **Stopka:** oktawa, liczba brzmiących głosów (do 8), obciążenie procesora i po prawej **MOVING** albo **STATIC**,
+  czyli czy coś porusza dźwiękiem w czasie. Gdy działa bezpiecznik przeciążenia, w nagłówku pojawia się napis LOAD.
 
 ## Źródła (ALGORITHM)
 
@@ -308,6 +308,43 @@ Kilka pomysłów:
 - **VELOCITY → BOOST** i **PRESSURE → SHIMMER**: mocniejsze granie otwiera barwę, a docisk dokłada oktawę wyżej.
 - **RANDOM → POSITION**: każda nuta zaczyna się w innym miejscu sampla.
 - **KEY → TILT**: wyższe nuty są jaśniejsze.
+
+### EVOLVE (SEQ): ruch w czasie
+
+Takie faktury żyją dopiero wtedy, gdy powoli się zmieniają: przez minutę, nie przez sekundę. Strona EVOLVE zbiera
+wszystko, co porusza dźwiękiem w czasie. Ma cztery gałki, które działają na cały ruch naraz.
+
+![Strona EVOLVE w presecie GLACIER](img/manual/evolve.png)
+
+| Gałka | Parametr | Zakres | Co robi |
+|---|---|---|---|
+| 1 | **DEPTH** | 0–200 % | jak mocno działa cała matryca: 0 % to dźwięk stoi, 100 % jak w ustawieniach, 200 % to podwójnie |
+| 2 | **SPEED** | /4X … 4X | tempo wszystkich LFO naraz: /4X to cztery razy wolniej, 4X cztery razy szybciej |
+| 3 | **DRIFT** | 0–100 % | wbudowane, bardzo wolne błądzenie (punkt docelowy zmienia się co 20–60 s) trzech parametrów, które najbardziej barwią bieżące źródło |
+| 4 | **VARIANT** | PRESET, #1 … #99 | gotowe warianty ruchu: każdy numer to inny zestaw wolnych LFO, obwiedni i tras w matrycy; PRESET przywraca ruch presetu |
+
+DRIFT porusza parametrami zależnie od źródła:
+
+| Źródło | DRIFT porusza |
+|---|---|
+| sample | POSITION, SPREAD, TILT |
+| PAD | BRIGHT, BAND, TILT |
+| VA | CUTOFF, SHAPE, TILT |
+| HARM | FOCUS, SLOPE, EVEN/ODD |
+
+Nad gałkami jest lista tego, co się teraz rusza: DRIFT i jego parametry, a pod nim każda trasa z matrycy z
+siłą, długością cyklu LFO (już z uwzględnieniem SPEED) i paskiem pokazującym jej bieżący wkład.
+
+**VARIANT** to najszybsza droga do ruchomego dźwięku. Kręć KNOB 4 i słuchaj. Ten sam numer przy tym samym źródle
+daje zawsze ten sam ruch, więc dobry wariant łatwo odnaleźć. Wariant nadpisuje LFO, MOD ENV 1 i sloty 1–6 matrycy
+(sloty 7 i 8 zostają), a VARIANT = PRESET przywraca ruch presetu.
+
+**Podpowiedź.** Jeśli przez 12 s trzymasz dźwięk, w którym nic się nie rusza (stopka pokazuje STATIC), nagłówek raz
+podpowie „STATIC SOUND? SEQ: EVOLVE”.
+
+Wszystkie fabryczne presety się ruszają: mają DRIFT, wolne LFO (cykle od kilkunastu sekund do półtorej minuty) i
+często obwiednię, która powoli otwiera barwę. To dobry punkt wyjścia: zajrzyj na EVOLVE i do MATRIX, żeby zobaczyć,
+jak są zrobione.
 
 ### COLOR (FX)
 

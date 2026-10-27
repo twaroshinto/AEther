@@ -29,13 +29,13 @@ All screenshots come from the browser emulator, which runs the same code as the 
 | 12 | **GLO** | SETUP: global settings (the second core, the overload guard) |
 | 13 | **HOME** | back to the main page (SOURCE); on it, silences all notes and turns HOLD off; held, shows the button map |
 | 14 | **SAVE** | stores the settings; the button lights when something is unsaved |
-| 15 | **SEQ** | nothing yet (unlit) |
+| 15 | **SEQ** | EVOLVE: how the sound changes over time (depth and speed of the motion, drift, motion variants) |
 | 16 | **PLAY** | HOLD: notes keep sounding after you let go of the keys, and a new chord replaces the old one |
 | 17 | **REC** | FREEZE: freezes the sample's or VA's spectrum at the current moment (no effect with PAD and HARM) |
 | 18 | **OCT− / OCT+** | keyboard octave, ±2 |
 | 19 | keys | 27 keys with velocity and pressure, from F3 (at octave 0) |
 
-ARP and SEQ are not used yet, so they stay dark.
+ARP is not used yet, so it stays dark.
 
 ## Getting around
 
@@ -46,6 +46,7 @@ The pages are grouped under five buttons. Each button has its own pages:
 | **EDIT** | SOURCE (+ TONE, HARM ENV A–D with HARM) | the source's sound |
 | **ENV** | AMP → MOD ENV 1 → MOD ENV 2 | the envelopes: volume and two for modulation |
 | **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX | the LFOs and the matrix that routes them |
+| **SEQ** | EVOLVE | how the sound changes over time |
 | **FX** | COLOR | colour: TILT, SUB, SHIMMER, SIZE |
 | **GLO** | SETUP | global settings |
 
@@ -65,8 +66,7 @@ the group you are in. Let go of HOME to return.
 ![The button map with HOME held](img/manual/help.png)
 
 **Button lights.** The button of the group you are in is lit brightly, as are PLAY while HOLD is on, REC while FREEZE
-is on, and SAVE while there are unsaved changes. Buttons that do something glow dimly; the unused ones (ARP, SEQ) are
-dark.
+is on, and SAVE while there are unsaved changes. Buttons that do something glow dimly; the unused ARP is dark.
 
 **Quick modulation.** Hold **LFO** (or **ENV**) and turn a knob on any page. The LFO (or MOD ENV) you looked at last
 starts moving the parameter under that knob, by as much as you turn. Details in the modulation section.
@@ -92,7 +92,8 @@ your changes are not lost to an accidental nudge. SAVE keeps them.
 - **Four parameters** with a value and a bar. **A white mark on the bar** means the parameter is modulated and
   shows where it is right now. The knob itself keeps its value.
 
-- **Footer:** octave, number of sounding voices (up to 8) and processor load.
+- **Footer:** octave, number of sounding voices (up to 8), processor load, and on the right **MOVING** or
+  **STATIC**: whether anything moves the sound over time.
 
 ## Sources (ALGORITHM)
 
@@ -305,6 +306,43 @@ A few ideas:
 - **VELOCITY → BOOST** and **PRESSURE → SHIMMER**: harder playing opens the colour, pressing down adds the octave above.
 - **RANDOM → POSITION**: every note starts at a different place in the sample.
 - **KEY → TILT**: higher notes are brighter.
+
+### EVOLVE (SEQ): motion over time
+
+These textures only come alive when they change slowly: over a minute, not a second. The EVOLVE page gathers
+everything that moves the sound over time. Its four knobs act on all the motion at once.
+
+![The EVOLVE page in the GLACIER preset](img/manual/evolve.png)
+
+| Knob | Parameter | Range | What it does |
+|---|---|---|---|
+| 1 | **DEPTH** | 0–200 % | how strongly the whole matrix acts: 0 % the sound stands still, 100 % as set, 200 % twice as much |
+| 2 | **SPEED** | /4X … 4X | the rate of every LFO at once: /4X four times slower, 4X four times faster |
+| 3 | **DRIFT** | 0–100 % | a built-in, very slow wander (a new target every 20–60 s) of the three parameters that colour the current source most |
+| 4 | **VARIANT** | PRESET, #1 … #99 | ready-made motions: each number is a different set of slow LFOs, envelopes and matrix routes; PRESET brings back the preset's own |
+
+What DRIFT moves depends on the source:
+
+| Source | DRIFT moves |
+|---|---|
+| sample | POSITION, SPREAD, TILT |
+| PAD | BRIGHT, BAND, TILT |
+| VA | CUTOFF, SHAPE, TILT |
+| HARM | FOCUS, SLOPE, EVEN/ODD |
+
+Above the knobs is a list of what moves right now: DRIFT and its parameters, then every route of the matrix with its
+amount, its LFO's cycle (with SPEED applied) and a bar with what it adds now.
+
+**VARIANT** is the quickest way to a moving sound: turn KNOB 4 and listen. The same number with the same source
+always gives the same motion, so a good one is easy to find again. A variant overwrites the LFOs, MOD ENV 1 and the
+matrix's slots 1–6 (slots 7 and 8 stay); VARIANT = PRESET brings the preset's motion back.
+
+**A hint.** If you hold a sound in which nothing moves for 12 s (the footer says STATIC), the header suggests once:
+"STATIC SOUND? SEQ: EVOLVE".
+
+Every factory preset moves: each has DRIFT, slow LFOs (cycles from ten-odd seconds to a minute and a half) and often an
+envelope that slowly opens the colour. They make a good starting point: look at EVOLVE and MATRIX to see how they are
+made.
 
 ### COLOR (FX)
 

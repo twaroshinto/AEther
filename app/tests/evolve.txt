@@ -1,0 +1,51 @@
+# EVOLVE (SEQ): how the sound moves over time. DEPTH scales the matrix, SPEED the LFOs, DRIFT wanders on its own,
+# VARIANT makes a motion (0: the preset's). And the tip a static sound gets once.
+wait 600
+listen
+expect preset 0
+expect moving 1
+tap SEQ
+wait 30
+expect page 15
+# GLACIER's own motion: LFO 1 > SPREAD (slot 1: source 1, destination 3)
+expect v63 1
+expect v64 3
+# VARIANT 1: a motion of its own; the same number makes the same one
+spin K4 1
+wait 50
+expect v91 1
+said VARIANT
+expect v66 2
+spin K4 1
+wait 30
+spin K4 -1
+wait 30
+expect v66 2
+# back to 0: the preset's motion again
+spin K4 -1
+wait 50
+expect v91 0
+expect v63 1
+expect v64 3
+# a held chord with GLACIER's motion: MOD ENV 1 (8 s up) opens SHIMMER (parameter 14) off its knob (0)
+key 7 down 100
+key 11 down 100
+wait 6000
+expect v14 0
+expect mod14 >10
+# DEPTH 0 and DRIFT 0: nothing moves; the knob's value is what plays
+spin K1 -127
+spin K3 -127
+wait 300
+expect moving 0
+expect mod14 0
+# 12 s of a static sound: the tip, once
+wait 13000
+said SEQ: EVOLVE
+key 7 up
+key 11 up
+# DRIFT alone moves the sample's POSITION, SPREAD and TILT (parameters 1, 2, 12)
+spin K3 127
+wait 30
+expect moving 1
+expect late 0
