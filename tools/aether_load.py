@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MPL-2.0
 # Copyright (C) 2026 fm1-aether contributors
+# AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE).
 """Load a sample into AETHER on an FM-1 over USB-MIDI (SysEx), for its USER source.
 
   aether_load.py SOUND.wav                  load it: mono, 22050 Hz, IMA ADPCM (4 bits a sample), up to 24 s;
