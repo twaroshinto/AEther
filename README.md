@@ -16,7 +16,7 @@ nieskończona chmura. Custom firmware na [fm1-base](https://github.com/charlesve
 
 ## Jak to brzmi i jak działa
 
-Cztery rodzaje źródeł widma, jeden silnik:
+Pięć rodzajów źródeł widma, jeden silnik:
 
 - **Sample** (16 wbudowanych + USER): sample skanowany bardzo powoli (STRETCH od 1x do ∞), czyli PaulStretch
   wprost. Wbudowane są syntetyzowane przy budowaniu (`app/tools/gen_source.py`), a własne wgrywasz po USB-MIDI.
@@ -32,10 +32,13 @@ Cztery rodzaje źródeł widma, jeden silnik:
   parzyste/nieparzyste, uwypuklenie lub wycięcie wokół wybranej harmonicznej, barwa zależna od dynamiki, i
   **cztery obwiednie** (ATTACK, DECAY, SUSTAIN), każda przypisana do jednej harmonicznej albo grupy (ODD, EVEN,
   LOW, MID, HIGH, ALL).
+- **LIVE VOX, AIR, BOW, BELL**: generatory grające na żywo (głosy z formantami, wiatr na rezonansach, struny
+  Karplusa-Stronga pod „smyczkiem”, pole dzwonów modalnych). Jak w intrach 64k: przepis zamiast danych, kilkaset
+  bajtów kodu każdy, bez pamięci na sample, bez pętli, same powoli się zmieniają.
 
 Do tego **matryca modulacji**: 8 slotów „źródło → cel × siła (±100 %)”. Źródła to trzy LFO (7 kształtów, w tym
 losowy i dryf, z FADE i SYNC do nuty), dwie obwiednie ADSR, dynamika, kółko modulacji (CC1), nacisk klawiszy i
-aftertouch, losowa wartość na nutę i wysokość nuty. Celów jest 23, w tym tempo innego LFO. Jedno źródło może
+aftertouch, losowa wartość na nutę i wysokość nuty. Celów jest 27, w tym tempo innego LFO. Jedno źródło może
 poruszać kilkoma parametrami, a jeden parametr słuchać kilku źródeł.
 
 | Wbudowane sample | |
@@ -61,11 +64,14 @@ oryginału w paśmie 5–16 kHz średnio o 2,0 dB z SBR, a bez SBR o 14,4 dB.
 
 ## Obsługa
 
-Skrót (pełna wersja w [docs/MANUAL.md](docs/MANUAL.md)): **ALGORITHM** wybiera źródło, **PRESETS** preset,
-**KNOB 1–4** to cztery parametry bieżącej strony, a strony zmieniasz przyciskami **EDIT** (SOURCE, TONE),
-**ENV** (SPACE, ENV A–D), **LFO** (LFO 1–3, MOD ENV 1–2), **GLO** (MATRIX), **FX** (COLOR), **SEQ** (SETUP) albo
-**SEL**/**SELECT** po kolei. **PLAY** to HOLD, **REC** to FREEZE, **HOME** wycisza, **SAVE** zapisuje. MIDI: nuty,
-CC64 sustain, CC1 i aftertouch jako źródła matrycy (WHEEL, PRESSURE), CC71 SPREAD, CC74 TILT.
+Skrót (pełna wersja w [docs/MANUAL.md](docs/MANUAL.md), po angielsku [docs/MANUAL.en.md](docs/MANUAL.en.md)):
+**ALGORITHM** wybiera źródło, **PRESETS** preset, **KNOB 1–4** to cztery parametry bieżącej strony. Strony są pod
+przyciskami: **EDIT** (źródło; przy HARM też TONE i HARM ENV A–D), **ENV** (AMP, MOD ENV 1–2), **LFO** (LFO 1–3,
+MATRIX), **SEQ** (EVOLVE: ruch w czasie), **FX** (COLOR), **GLO** (SETUP). Przycisk wraca na ostatnio oglądaną stronę
+swojej grupy, a kolejne naciśnięcie przechodzi dalej. **HOME** wraca na stronę główną (na niej wycisza), a
+przytrzymany pokazuje mapę przycisków. Przytrzymanie **LFO** albo **ENV** i kręcenie gałką przypisuje modulację.
+**PLAY** to HOLD, **REC** to FREEZE, **SAVE** zapisuje. MIDI: nuty, CC64 sustain, CC1 i aftertouch jako źródła
+matrycy (WHEEL, PRESSURE), CC71 SPREAD, CC74 TILT.
 
 ## Moc obliczeniowa i drugi rdzeń
 

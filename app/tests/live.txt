@@ -1,0 +1,55 @@
+# the live sources (dsp/live.c): after USER in ALGORITHM's list, so four back from CHOIR (past HARM, VA, PAD) is
+# LIVE BELL. Each plays a chord, moves by itself, and has its own page (TONE, MOVE, CHARACTER, DENSITY)
+wait 600
+expect slot 3
+spin ALGO -4
+wait 50
+expect slot 23
+expect page 0
+key 7 down 100
+key 11 down 100
+wav live_bell.wav
+wait 4000
+expect voices 2
+expect peak_db_min -30
+shot live_bell.png
+# LIVE BOW, LIVE AIR, LIVE VOX: each sounds
+spin ALGO -1
+wait 50
+expect slot 22
+wait 3000
+expect peak_db_min -30
+spin ALGO -1
+wait 50
+expect slot 21
+wait 3000
+expect peak_db_min -30
+spin ALGO -1
+wait 50
+expect slot 20
+# VOX's page: DENSITY (KNOB 4) up, six voices
+spin K4 63
+wait 50
+expect v95 127
+wait 3000
+wavstop
+expect peak_db_min -30
+shot live_vox.png
+key 7 up
+key 11 up
+# on, past the last: PAD
+spin ALGO 4
+wait 50
+expect slot 0
+# the live presets (27 on: SPIRIT CHOIR .. CRYSTAL VOICES), each moving
+spin PRESET 1
+wait 50
+spin PRESET 26
+wait 50
+expect preset 26
+expect slot 20
+expect moving 1
+tapkey 7 100
+wait 2000
+expect peak_db_min -30
+expect late 0

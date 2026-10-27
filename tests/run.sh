@@ -10,12 +10,12 @@ CC="${CC:-cc}"
 OUT=build/test
 mkdir -p "$OUT/gen"
 python3 app/tools/gen_source.py --out "$OUT/gen/aether_source.h" --wav-dir "$OUT/starter"
-for u in aether va; do
+for u in aether va live; do
     $CC -O2 -ffp-contract=off -std=c99 -Wall -Wextra -Werror -Wdouble-promotion -Wno-unused-function \
         -c app/dsp/$u.c -Ibase/include -o "$OUT/$u.o"
 done
 $CC -O2 -ffp-contract=off -std=gnu99 -Wall -Wextra -Iapp/dsp -I"$OUT/gen" \
-    tests/dsp_test.c "$OUT/aether.o" "$OUT/va.o" -lm -lpthread -o "$OUT/dsp_test"
+    tests/dsp_test.c "$OUT/aether.o" "$OUT/va.o" "$OUT/live.o" -lm -lpthread -o "$OUT/dsp_test"
 # a stereo 24-bit sweep: the loader's own conversion, as PCM16 and ADPCM flash images (and SysEx) for the tests
 python3 - "$OUT/sweep.wav" <<'PY'
 import math, sys, wave

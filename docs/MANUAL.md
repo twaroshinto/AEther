@@ -16,8 +16,8 @@ Wszystkie zrzuty pochodzą z emulatora w przeglądarce, w którym działa ten sa
 |---|---|---|
 | 1 | **MASTER** | głośność |
 | 2 | **SELECT** | przewija wszystkie strony po kolei (jak SEL) |
-| 3 | **PRESETS** | wybiera preset (26 fabrycznych) |
-| 4 | **ALGORITHM** | wybiera źródło dźwięku (PAD, VA, HARM, 16 sampli, USER) |
+| 3 | **PRESETS** | wybiera preset (31 fabrycznych) |
+| 4 | **ALGORITHM** | wybiera źródło dźwięku (PAD, VA, HARM, 16 sampli, USER, 4 źródła LIVE) |
 | 5 | ekran | źródło i preset, podgląd (widmo, harmoniczne, LFO, matryca), cztery parametry bieżącej strony |
 | 6 | **KNOB 1–4** | cztery parametry bieżącej strony, w kolejności jak na ekranie: lewy górny, prawy górny, lewy dolny, prawy dolny |
 | 7 | **FX** | strona COLOR |
@@ -103,6 +103,7 @@ nie znikną więc przez przypadkowe trącenie gałki. Zapisujesz je przyciskiem 
 | **HARM** | generator harmonicznych: liczba, nachylenie, uwypuklenie, 4 obwiednie na wybrane harmoniczne |
 | **CHOIR … TAPE** | 16 wbudowanych sampli: chór, szkło, struny, wiatr, fortepian, wiolonczela, flet, organy, kalimba, sekcja dęta, tanpura, deszcz, ptaki, szept, gamelan, pianino z taśmy |
 | **USER** | sample wgrany z komputera (pojawia się dopiero po wgraniu) |
+| **LIVE VOX, AIR, BOW, BELL** | generatory grające na żywo: głosy, wiatr, smyczki, dzwony; nie zajmują pamięci na sample, nigdy się nie powtarzają i same powoli się zmieniają |
 
 Przy samplach klawisz C4 gra oryginalną wysokość, a inne klawisze przesuwają całe widmo.
 
@@ -132,6 +133,34 @@ przy HARM.
 | 2 | **BAND** | 1–300 centów | szerokość każdej harmonicznej: wąsko to organy, szeroko to chór |
 | 3 | **INHARM** | 0–100 % | rozjeżdżanie harmonicznych w górę, jak w dzwonie lub sztywnej strunie |
 | 4 | **ODD** | 0–100 % | wycina parzyste harmoniczne (brzmienie „puste”, klarnetowe) |
+
+### SOURCE: LIVE VOX, LIVE AIR, LIVE BOW, LIVE BELL
+
+To nie są nagrania, tylko małe programy, które przez cały czas grają C4 i podają dźwięk silnikowi, tak jak VA.
+To pomysł z demosceny i intr 64k: zamiast danych trzymamy przepis. Każde z tych źródeł zajmuje kilkaset bajtów
+kodu, nie ma długości ani pętli i samo z siebie powoli się zmienia.
+
+| Źródło | Co gra |
+|---|---|
+| **LIVE VOX** | kilka lekko rozstrojonych głosów przez cztery formanty, które powoli przechodzą od samogłoski do samogłoski |
+| **LIVE AIR** | wiatr: szum przez rezonanse na harmonicznych nuty, każdy z własnymi podmuchami |
+| **LIVE BOW** | smyczki: struny (Karplus-Strong) podtrzymywane szumem „smyczka”, którego nacisk się zmienia |
+| **LIVE BELL** | pole dzwonów: rezonatory modalne uderzane w przypadkowych chwilach |
+
+Wszystkie mają te same cztery gałki, które przy każdym znaczą coś trochę innego:
+
+| Gałka | Parametr | VOX | AIR | BOW | BELL |
+|---|---|---|---|---|---|
+| 1 | **TONE** | oddech i jasność | rejestr rezonansów | tłumienie strun (ciemno ↔ jasno) | jak długo dzwonią wyższe mody |
+| 2 | **MOVE** | jak szybko zmieniają się samogłoski | podmuchy | zmiany nacisku smyczka | zmienność uderzeń |
+| 3 | **CHARACTER** | głosy niskie ↔ wysokie | szum ↔ gwizd | gładko ↔ szorstko | harmonicznie ↔ dzwonowo |
+| 4 | **DENSITY** | 1–6 głosów | 1–8 rezonansów | 1–4 struny | ile uderzeń na sekundę |
+
+MOVE = 0 zatrzymuje wewnętrzny ruch źródła. W matrycy są cele LIVE TONE, LIVE MOVE, LIVE CHAR i LIVE DENSITY, a DRIFT
+przy tych źródłach porusza TONE, CHARACTER i TILT. Koszt: kilka procent procesora (szacunek na podstawie pomiaru na
+komputerze).
+
+![LIVE VOX: strona źródła](img/manual/live.png)
 
 ### SOURCE: VA
 
@@ -411,6 +440,11 @@ kroku. Stan widać na stronie SETUP (OVERLOAD GUARD) i w nagłówku (LOAD).
 | 24 | GRAIN | CHOIR | najkrótsze okno, ziarniste, szybkie |
 | 25 | FROZEN | CHOIR | STRETCH INF, mocno rozmyte, zamrożona chwila |
 | 26 | DEEP | PAD | ciemny, z mocną oktawą niżej |
+| 27 | SPIRIT CHOIR | LIVE VOX | sześć głosów wędrujących między samogłoskami, barwa otwiera się powoli |
+| 28 | NORTH WIND | LIVE AIR | gwiżdżący wiatr, rejestr i liczba rezonansów falują |
+| 29 | BOWED DRONE | LIVE BOW | cztery struny, smyczek raz gładki, raz szorstki |
+| 30 | BELL FIELD | LIVE BELL | dzwony uderzane coraz gęściej i rzadziej |
+| 31 | CRYSTAL VOICES | LIVE VOX | wysokie głosy z oktawą wyżej, szybko zmienne samogłoski |
 
 Wybranie presetu zmienia źródło, wszystkie gałki, modulatory i matrycę. SAVE zapamiętuje bieżący stan, także po
 zmianach gałek, ale jest tylko jedno miejsce zapisu. Gdy masz niezapisane zmiany (gwiazdka przy nazwie), pierwszy

@@ -17,8 +17,8 @@ All screenshots come from the browser emulator, which runs the same code as the 
 |---|---|---|
 | 1 | **MASTER** | volume |
 | 2 | **SELECT** | steps through every page in turn (like SEL) |
-| 3 | **PRESETS** | picks a preset (26 factory presets) |
-| 4 | **ALGORITHM** | picks the sound source (PAD, VA, HARM, 16 samples, USER) |
+| 3 | **PRESETS** | picks a preset (31 factory presets) |
+| 4 | **ALGORITHM** | picks the sound source (PAD, VA, HARM, 16 samples, USER, 4 LIVE sources) |
 | 5 | screen | source and preset, a view (spectrum, harmonics, LFO, matrix), the current page's four parameters |
 | 6 | **KNOB 1–4** | the current page's four parameters, in screen order: top left, top right, bottom left, bottom right |
 | 7 | **FX** | the COLOR page |
@@ -104,6 +104,7 @@ your changes are not lost to an accidental nudge. SAVE keeps them.
 | **HARM** | a harmonic generator: count, slope, emphasis, 4 envelopes on chosen harmonics |
 | **CHOIR … TAPE** | 16 built-in samples: choir, glass, strings, wind, piano, cello, flute, organ, kalimba, brass, tanpura, rain, birds, whisper, gamelan, tape piano |
 | **USER** | a sample loaded from a computer (appears only after loading) |
+| **LIVE VOX, AIR, BOW, BELL** | generators playing live: voices, wind, bowed strings, bells; no sample memory, never repeating, changing slowly by themselves |
 
 With samples, C4 plays the original pitch and other keys shift the whole spectrum.
 
@@ -133,6 +134,34 @@ only with HARM.
 | 2 | **BAND** | 1–300 cents | width of each harmonic: narrow is an organ, wide is a choir |
 | 3 | **INHARM** | 0–100 % | stretches the harmonics upwards, like a bell or a stiff string |
 | 4 | **ODD** | 0–100 % | removes the even harmonics (a hollow, clarinet-like sound) |
+
+### SOURCE: LIVE VOX, LIVE AIR, LIVE BOW, LIVE BELL
+
+These are not recordings but small programs that play C4 all the time and feed the engine, the way VA does. The
+idea comes from the demoscene's 64k intros: keep the recipe, not the data. Each takes a few hundred bytes of code,
+has no length and no loop, and changes slowly by itself.
+
+| Source | What it plays |
+|---|---|
+| **LIVE VOX** | a few slightly detuned voices through four formants that move slowly from vowel to vowel |
+| **LIVE AIR** | wind: noise through resonances on the note's harmonics, each gusting on its own |
+| **LIVE BOW** | bowed strings: plucked-string loops (Karplus-Strong) kept sounding by a noisy "bow" whose pressure wanders |
+| **LIVE BELL** | a field of bells: modal resonators struck at random moments |
+
+They share the same four knobs, which mean slightly different things for each:
+
+| Knob | Parameter | VOX | AIR | BOW | BELL |
+|---|---|---|---|---|---|
+| 1 | **TONE** | breath and brightness | the resonances' register | the strings' damping (dark ↔ bright) | how long the upper modes ring |
+| 2 | **MOVE** | how fast the vowels change | gusts | the bow pressure's changes | how much the strikes vary |
+| 3 | **CHARACTER** | low ↔ high voices | breathy ↔ whistling | smooth ↔ scratchy | harmonic ↔ bell-like |
+| 4 | **DENSITY** | 1–6 voices | 1–8 resonances | 1–4 strings | strikes per second |
+
+MOVE = 0 stops the source's own motion. The matrix has the destinations LIVE TONE, LIVE MOVE, LIVE CHAR and LIVE
+DENSITY, and with these sources DRIFT moves TONE, CHARACTER and TILT. Cost: a few percent of the processor (an
+estimate from a measurement on a computer).
+
+![LIVE VOX: the source page](img/manual/live.png)
 
 ### SOURCE: VA
 
@@ -409,6 +438,11 @@ back, one step at a time. You see its state on the SETUP page (OVERLOAD GUARD) a
 | 24 | GRAIN | CHOIR | the shortest window, grainy, fast |
 | 25 | FROZEN | CHOIR | STRETCH INF, heavily blurred, a frozen moment |
 | 26 | DEEP | PAD | dark, with a strong octave below |
+| 27 | SPIRIT CHOIR | LIVE VOX | six voices wandering between vowels, the colour opening slowly |
+| 28 | NORTH WIND | LIVE AIR | a whistling wind, its register and number of resonances swaying |
+| 29 | BOWED DRONE | LIVE BOW | four strings, the bow now smooth, now scratchy |
+| 30 | BELL FIELD | LIVE BELL | bells struck ever more and less often |
+| 31 | CRYSTAL VOICES | LIVE VOX | high voices with the octave above, fast-changing vowels |
 
 Choosing a preset changes the source, every knob, the modulators and the matrix. SAVE stores the current state,
 including knob changes, but there is only one save slot. With unsaved changes (the asterisk next to the name), the

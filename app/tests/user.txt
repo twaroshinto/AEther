@@ -3,10 +3,10 @@
 wait 600
 expect user_len 0
 expect src_len 44100
-# USER is skipped while nothing is loaded: from CHOIR, sixteen on (past TAPE) is PAD
+# USER is skipped while nothing is loaded: from CHOIR, sixteen on (past TAPE) is LIVE VOX
 spin ALGO 16
 wait 50
-expect slot 0
+expect slot 20
 # (0x9B000, not 0x97000: fm1-base's simulator writes "data" at OFFSET - PLAT_DATA_LO into an area plat_data reads
 # from PLAT_XDATA0_LO, 0x4000 lower; this lands the image where AETHER reads 0x97000)
 data app/build/host/user.bin 0x9B000

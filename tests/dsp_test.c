@@ -13,8 +13,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "aether.h"
 #include "va.h"
+#include "live.h"
 #include "aether_source.h"
 
 #define BLOCK 256u                       /* the firmware's APP_BLOCK */
@@ -23,6 +25,7 @@ static aet_t eng;
 static int fails;
 static const char *outdir = ".";
 static va_t *live_va;                    /* the VA source, pushed into LIVE before each block (as app_render does) */
+static live_t *live_gen;                 /* or a live generator (dsp/live.c), the same way */
 
 #define CHECK(cond, ...)                                                                                           \
     do {                                                                                                           \
@@ -54,6 +57,9 @@ static void rec_run(rec_t *rc, float secs)
             va_render(live_va, rc->l + rc->n, n);
             aet_live_push(&eng, rc->l + rc->n, n);
             eng.p.lp_hz = live_va->fc_now;   /* the VA's filter: the engine's spectral low-pass */
+        } else if (live_gen) {
+            live_render(live_gen, rc->l + rc->n, n);
+            aet_live_push(&eng, rc->l + rc->n, n);
         }
         aet_render(&eng, rc->l + rc->n, rc->r + rc->n, n);
         rc->n += n;
@@ -140,6 +146,7 @@ static void reset(void)
 {
     aet_init(&eng, ram);
     live_va = 0;
+    live_gen = 0;
     aet_set_sample(&eng, aet_builtin[0].data, aet_builtin[0].len, aet_builtin[0].rate, AET_FMT_ADPCM);
     aet_set_env(&eng, aet_builtin[0].env, aet_builtin[0].env_frames, aet_builtin[0].env_hop);
 }
@@ -337,6 +344,74 @@ static void t_va(void)
     CHECK(eng.late == 0, "va: %u frames late", eng.late);
     rec_wav(&rc, "va.wav");
     rec_free(&rc);
+}
+
+/* the live generators: each sounds at the key's pitch (VOX, BOW and BELL are pitched on C4), about as loud as VA,
+ * stays sane at every knob's extremes, and what each costs (the generator alone, on this machine) */
+static void t_live(void)
+{
+    static const char *const NAME[LIVE_N] = {"vox", "air", "bow", "bell"};
+    static live_t g;
+    uint32_t k;
+    printf("live: VOX, AIR, BOW, BELL as LIVE sources: C4 and C5, the level, every knob at its extremes\n");
+    for (k = 0; k < LIVE_N; k++) {
+        rec_t rc = {0};
+        char name[32];
+        double f1 = 0, f2 = 0, lv;
+        reset();
+        live_init(&g);
+        live_kind(&g, k);
+        g.density = k == LIVE_BELL ? 0.8f : 0.5f;
+        live_gen = &g;
+        eng.p.source = AET_SRC_LIVE;
+        eng.p.spread = 0.18f;
+        eng.p.attack = 0.05f;
+        eng.p.release = 0.1f;
+        eng.p.width = 0.0f;
+        aet_note_on(&eng, 60, 1.0f);
+        rec_run(&rc, 3.0f);
+        aet_note_off(&eng, 60);
+        rec_run(&rc, 1.0f);
+        aet_note_on(&eng, 72, 1.0f);
+        rec_run(&rc, 3.0f);
+        lv = rms_db(&rc, 1.5, 3.0);
+        if (k != LIVE_AIR) {             /* (AIR's strongest resonance is a harmonic of TONE's register) */
+            f1 = peak_hz(&rc, 1.5, 3.0, 150.0, 400.0);
+            f2 = peak_hz(&rc, 5.5, 7.0, 400.0, 700.0);
+            CHECK(fabs(f1 - 261.6) <= 8.0, "live %s: %.0f Hz, not 262", NAME[k], f1);
+            CHECK(fabs(f2 - 523.3) <= 12.0, "live %s: %.0f Hz an octave up, not 523", NAME[k], f2);
+        }
+        printf("  %-4s C4 %3.0f Hz, C5 %3.0f Hz, level %.1f dBFS\n", NAME[k], f1, f2, lv);
+        CHECK(lv > -30.0 && lv < -3.0, "live %s: level %.1f dB", NAME[k], lv);
+        for (int i = 0; i < 16; i++) {   /* the knobs' corners, moving */
+            g.tone = (float)(i & 1);
+            g.move = (float)(i >> 1 & 1);
+            g.character = (float)(i >> 2 & 1);
+            g.density = (float)(i >> 3 & 1);
+            rec_run(&rc, 0.4f);
+        }
+        snprintf(name, sizeof name, "live_%s", NAME[k]);
+        check_sane(&rc, name);
+        CHECK(eng.late == 0, "live %s: %u frames late", NAME[k], eng.late);
+        snprintf(name, sizeof name, "live_%s.wav", NAME[k]);
+        rec_wav(&rc, name);
+        rec_free(&rc);
+        {                                /* its cost: 20 s of the generator alone, every voice and mode on */
+            static float buf[BLOCK];
+            clock_t t0;
+            double cpu;
+            live_init(&g);
+            live_kind(&g, k);
+            g.density = 1.0f;
+            g.move = 1.0f;
+            t0 = clock();
+            for (uint32_t b = 0; b < 20u * AET_FS / BLOCK; b++)
+                live_render(&g, buf, BLOCK);
+            cpu = (double)(clock() - t0) / CLOCKS_PER_SEC / 20.0 * 100.0;
+            printf("       %.2f %% of one host core\n", cpu);
+        }
+    }
+    live_gen = 0;
 }
 
 /* every built-in sample, stretched: it sounds, nothing breaks */
@@ -715,6 +790,7 @@ int main(int argc, char **argv)
     t_torture();
     t_budget();
     t_va();
+    t_live();
     t_builtins();
     t_harm();
     t_dual();

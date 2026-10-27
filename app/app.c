@@ -22,6 +22,7 @@
 #include "fastmath.h"
 #include "aether.h"
 #include "va.h"
+#include "live.h"
 #include "aether_source.h"                /* the built-in samples (tools/gen_source.py, at build time) */
 
 /* ------------------------------------------------------------- parameters --- */
@@ -41,6 +42,7 @@ enum { P_STRETCH, P_POSITION, P_SPREAD, P_SIZE, P_BRIGHT, P_BAND, P_INHARM, P_OD
        P_EV_SPEED,                       /* EVOLVE: every LFO's rate x 1/4 .. 4 */
        P_EV_DRIFT,                       /* EVOLVE: the built-in slow wander (drift_step) */
        P_EV_VARIANT,                     /* EVOLVE: 0 the preset's own motion, 1 .. 99 a made one (motion_make) */
+       P_L_TONE, P_L_MOVE, P_L_CHAR, P_L_DENS,   /* the live sources (dsp/live.h): their four knobs */
        P_CORE2,                          /* SETUP: the second core (at the next power-on) */
        NP };
 #define P_HENV(k, i) (P_HENV0 + 4 * (k) + (i))
@@ -58,15 +60,16 @@ static const char *const MS_NAME[NMS] = {"OFF", "LFO 1", "LFO 2", "LFO 3", "ENV 
 /* ... and what they may move: these parameters (their knobs' values, so every mapping holds) */
 enum { D_OFF, D_STRETCH, D_POSITION, D_SPREAD, D_TILT, D_SUB, D_SHIMMER, D_WIDTH, D_LEVEL, D_BRIGHT, D_BAND,
        D_INHARM, D_ODD, D_SHAPE, D_CUTOFF, D_RESO, D_SLOPE, D_EVENODD, D_FOCUS, D_BOOST, D_HBAND, D_RATE1, D_RATE2,
-       D_RATE3, NDEST };
+       D_RATE3, D_LTONE, D_LMOVE, D_LCHAR, D_LDENS, NDEST };
 static const uint8_t MOD_DEST[NDEST] = {P_NONE, P_STRETCH, P_POSITION, P_SPREAD, P_TILT, P_SUB, P_SHIMMER, P_WIDTH,
                                         P_LEVEL, P_BRIGHT, P_BAND, P_INHARM, P_ODD, P_SHAPE, P_CUTOFF, P_RESO,
                                         P_H_SLOPE, P_H_ODD, P_H_FOCUS, P_H_BOOST, P_H_BAND, P_LFO(0, 0), P_LFO(1, 0),
-                                        P_LFO(2, 0)};
+                                        P_LFO(2, 0), P_L_TONE, P_L_MOVE, P_L_CHAR, P_L_DENS};
 static const char *const DEST_NAME[NDEST] = {"OFF", "STRETCH", "POSITION", "SPREAD", "TILT", "SUB", "SHIMMER",
                                              "WIDTH", "LEVEL", "BRIGHT", "BAND", "INHARM", "ODD", "SHAPE", "CUTOFF",
                                              "RESO", "SLOPE", "EVEN/ODD", "FOCUS", "BOOST", "H BAND", "LFO1 RATE",
-                                             "LFO2 RATE", "LFO3 RATE"};
+                                             "LFO2 RATE", "LFO3 RATE", "LIVE TONE", "LIVE MOVE", "LIVE CHAR",
+                                             "LIVE DENSITY"};
 typedef struct {
     const char *name;
     uint8_t max;                         /* the values are 0 .. max (127 mostly) */
@@ -89,6 +92,7 @@ static const pdef_t PDEF[NP] = {
     MX_DEF, MX_DEF, MX_DEF, MX_DEF, MX_DEF, MX_DEF, MX_DEF, MX_DEF,
     {"SLOT", NMX - 1u},
     {"DEPTH", 127}, {"SPEED", 127}, {"DRIFT", 127}, {"VARIANT", 99},
+    {"TONE", 127}, {"MOVE", 127}, {"CHARACTER", 127}, {"DENSITY", 127},
     {"2ND CORE", 1},
 };
 /* the factory values; a preset changes some of them */
@@ -102,20 +106,24 @@ static const uint8_t PDEFAULT[NP] = {
     MS_WHEEL, D_POSITION, 127,                                      /* slot 8: the mod wheel scans the sample */
     0,
     64, 64, 40, 0,                                                  /* EVOLVE: 100 %, 1x, some drift, the preset's */
+    64, 64, 64, 64,                                                 /* the live sources: half way */
     0,
 };
 
-/* the sources: PAD, VA, HARM, the built-in samples (aet_builtin[], SLOT_SMP0 on), USER */
+/* the sources: PAD, VA, HARM, the built-in samples (aet_builtin[], SLOT_SMP0 on), USER, the live ones (LIVE_*) */
 enum { SLOT_PAD, SLOT_VA, SLOT_HARM, SLOT_SMP0, SLOT_CHOIR = SLOT_SMP0, SLOT_GLASS, SLOT_STRING, SLOT_WIND, SLOT_PIANO,
        SLOT_BOWED, SLOT_FLUTE, SLOT_ORGAN, SLOT_KALIMBA, SLOT_BRASS, SLOT_DRONE, SLOT_RAIN, SLOT_BIRDS,
        SLOT_WHISPER, SLOT_GAMELAN, SLOT_TAPE };   /* in gen_source.py's order */
 #define SLOT_USER (SLOT_SMP0 + AET_NBUILTIN)
-#define NSLOT (SLOT_USER + 1u)
-static int slot_sample(uint32_t s) { return s >= SLOT_SMP0; }   /* a sample, built-in or loaded */
+#define SLOT_LIVE0 (SLOT_USER + 1u)      /* LIVE VOX, AIR, BOW, BELL */
+#define NSLOT (SLOT_LIVE0 + LIVE_N)
+static int slot_sample(uint32_t s) { return s >= SLOT_SMP0 && s <= SLOT_USER; }   /* a sample, built-in or loaded */
+static int slot_live(uint32_t s) { return s >= SLOT_LIVE0 && s < NSLOT; }
 static const char *slot_name(uint32_t s)
 {
+    static const char *const LIVE_NAME[LIVE_N] = {"LIVE VOX", "LIVE AIR", "LIVE BOW", "LIVE BELL"};
     return s == SLOT_PAD ? "PAD" : s == SLOT_VA ? "VA" : s == SLOT_HARM ? "HARM" :
-           s < SLOT_USER ? aet_builtin[s - SLOT_SMP0].name : "USER";
+           s < SLOT_USER ? aet_builtin[s - SLOT_SMP0].name : s == SLOT_USER ? "USER" : LIVE_NAME[(s - SLOT_LIVE0) % LIVE_N];
 }
 enum { PG_SOURCE, PG_TONE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, PG_AMP, PG_LFO1, PG_LFO2, PG_LFO3, PG_MENV1,
        PG_MENV2, PG_MATRIX, PG_COLOR, PG_SETUP, PG_EVOLVE, NPAGE };
@@ -140,6 +148,7 @@ static const uint8_t GROUP_PAGES[NGROUP][7] = {
 static const uint8_t PAGE_SAMPLE[4] = {P_STRETCH, P_POSITION, P_SPREAD, P_SIZE};
 static const uint8_t PAGE_PAD[4] = {P_BRIGHT, P_BAND, P_INHARM, P_ODD};
 static const uint8_t PAGE_VA[4] = {P_SHAPE, P_CUTOFF, P_RESO, P_MOTION};
+static const uint8_t PAGE_LIVE[4] = {P_L_TONE, P_L_MOVE, P_L_CHAR, P_L_DENS};
 static const uint8_t PAGE_HARM[4] = {P_H_COUNT, P_H_SLOPE, P_H_ODD, P_H_BAND};
 static const uint8_t PAGE_TONE[4] = {P_H_FOCUS, P_H_BOOST, P_H_WIDTH, P_H_VEL};
 static const uint8_t PAGE_AMP[4] = {P_ATTACK, P_RELEASE, P_WIDTH, P_LEVEL};
@@ -302,6 +311,30 @@ static const preset_t PRESETS[] = {
             O(P_LFO(1, 1), LFO_DRIFT), O(P_LFO(2, 0), 29), O(P_LFO(2, 1), LFO_TRI), O(P_MX(0, 0), MS_LFO1),
             O(P_MX(0, 1), D_BRIGHT), O(P_MX(0, 2), 80), O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_SUB),
             O(P_MX(1, 2), 45), O(P_MX(2, 0), MS_LFO3), O(P_MX(2, 1), D_BAND), O(P_MX(2, 2), 80)}},
+    {"SPIRIT CHOIR", SLOT_LIVE0 + 0u, {O(P_L_TONE, 50), O(P_L_MOVE, 70), O(P_L_CHAR, 60), O(P_L_DENS, 100),
+                O(P_ATTACK, 85), O(P_RELEASE, 100), O(P_WIDTH, 120), O(P_EV_DRIFT, 50),
+                O(P_LFO(0, 0), 17), O(P_LFO(0, 1), LFO_SINE), O(P_MENV(0, 0), 111), O(P_MENV(0, 1), 119),
+                O(P_MENV(0, 2), 64), O(P_MENV(0, 3), 105), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_TILT),
+                O(P_MX(0, 2), 77), O(P_MX(1, 0), MS_ENV1), O(P_MX(1, 1), D_SHIMMER), O(P_MX(1, 2), 83)}},
+    {"NORTH WIND", SLOT_LIVE0 + 1u, {O(P_L_TONE, 50), O(P_L_MOVE, 85), O(P_L_CHAR, 90), O(P_L_DENS, 60),
+                O(P_ATTACK, 90), O(P_RELEASE, 100), O(P_WIDTH, 127), O(P_EV_DRIFT, 60),
+                O(P_LFO(0, 0), 22), O(P_LFO(0, 1), LFO_DRIFT), O(P_LFO(1, 0), 11), O(P_LFO(1, 1), LFO_SINE),
+                O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_LTONE), O(P_MX(0, 2), 83), O(P_MX(1, 0), MS_LFO2),
+                O(P_MX(1, 1), D_LDENS), O(P_MX(1, 2), 80)}},
+    {"BOWED DRONE", SLOT_LIVE0 + 2u, {O(P_L_TONE, 70), O(P_L_MOVE, 60), O(P_L_CHAR, 30), O(P_L_DENS, 127),
+                O(P_ATTACK, 90), O(P_RELEASE, 100), O(P_WIDTH, 110), O(P_SUB, 25),
+                O(P_EV_DRIFT, 50), O(P_LFO(0, 0), 15), O(P_LFO(0, 1), LFO_SINE), O(P_LFO(1, 0), 7),
+                O(P_LFO(1, 1), LFO_DRIFT), O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_TILT), O(P_MX(0, 2), 77),
+                O(P_MX(1, 0), MS_LFO2), O(P_MX(1, 1), D_LCHAR), O(P_MX(1, 2), 83)}},
+    {"BELL FIELD", SLOT_LIVE0 + 3u, {O(P_L_TONE, 80), O(P_L_MOVE, 60), O(P_L_CHAR, 127), O(P_L_DENS, 70),
+                O(P_ATTACK, 60), O(P_RELEASE, 105), O(P_WIDTH, 127), O(P_EV_DRIFT, 40),
+                O(P_LFO(0, 0), 9), O(P_LFO(0, 1), LFO_DRIFT), O(P_LFO(1, 0), 25), O(P_LFO(1, 1), LFO_SINE),
+                O(P_MX(0, 0), MS_LFO1), O(P_MX(0, 1), D_LDENS), O(P_MX(0, 2), 83), O(P_MX(1, 0), MS_LFO2),
+                O(P_MX(1, 1), D_SHIMMER), O(P_MX(1, 2), 80)}},
+    {"CRYSTAL VOICES", SLOT_LIVE0 + 0u, {O(P_L_TONE, 80), O(P_L_MOVE, 90), O(P_L_CHAR, 120), O(P_L_DENS, 70),
+                O(P_ATTACK, 80), O(P_RELEASE, 105), O(P_WIDTH, 127), O(P_SHIMMER, 40),
+                O(P_EV_DRIFT, 50), O(P_LFO(0, 0), 20), O(P_LFO(0, 1), LFO_TRI), O(P_MX(0, 0), MS_LFO1),
+                O(P_MX(0, 1), D_LDENS), O(P_MX(0, 2), 83)}},
 };
 #define NPRESET (sizeof PRESETS / sizeof PRESETS[0])
 
@@ -323,6 +356,8 @@ static void ui_dirty_params(void);
 static aet_t eng;
 static float eng_ram[AET_RAM_FLOATS] PLAT_POOL;
 static va_t va;                          /* the VA source: rendered into the engine's LIVE ring */
+static live_t lg;                        /* the live sources: the same way */
+static volatile uint8_t lg_on;
 static volatile uint8_t va_on;
 static uint8_t freeze, hold;
 
@@ -398,11 +433,12 @@ static int any_gate(void)                /* a note held (keys, HOLD, MIDI): the 
 
 /* EVOLVE's DRIFT: three slow random walks (each to a new random point every 20 to 60 s, smoothly) on the three
  * parameters that colour the current source most, by up to a quarter of their range at 100 % */
-static const uint8_t DRIFT_DEST[4][3] = {
+static const uint8_t DRIFT_DEST[5][3] = {
     {P_POSITION, P_SPREAD, P_TILT},      /* a sample */
     {P_BRIGHT, P_BAND, P_TILT},          /* PAD */
     {P_CUTOFF, P_SHAPE, P_TILT},         /* VA */
     {P_H_FOCUS, P_H_SLOPE, P_H_ODD},     /* HARM */
+    {P_L_TONE, P_L_CHAR, P_TILT},        /* the live sources */
 };
 static struct {
     float x, to, t, len;
@@ -411,7 +447,8 @@ static uint32_t drift_rng = 0xD21F7u;
 
 static uint32_t drift_kind(void)
 {
-    return set.slot == SLOT_PAD ? 1u : set.slot == SLOT_VA ? 2u : set.slot == SLOT_HARM ? 3u : 0u;
+    return set.slot == SLOT_PAD ? 1u : set.slot == SLOT_VA ? 2u : set.slot == SLOT_HARM ? 3u :
+           slot_live(set.slot) ? 4u : 0u;
 }
 
 static void drift_step(float dt)         /* audio interrupt, after the matrix */
@@ -530,9 +567,14 @@ static void map_params(void)
     aet_params_t *p = &eng.p;
     const float *v = mod_v;
     uint32_t k;
-    p->source = set.slot == SLOT_PAD ? AET_SRC_PAD : set.slot == SLOT_VA ? AET_SRC_LIVE :
+    p->source = set.slot == SLOT_PAD ? AET_SRC_PAD : set.slot == SLOT_VA || slot_live(set.slot) ? AET_SRC_LIVE :
                 set.slot == SLOT_HARM ? AET_SRC_HARM : AET_SRC_SAMPLE;
     va_on = set.slot == SLOT_VA;
+    lg_on = (uint8_t)slot_live(set.slot);
+    lg.tone = unit(v[P_L_TONE]);
+    lg.move = unit(v[P_L_MOVE]);
+    lg.character = unit(v[P_L_CHAR]);
+    lg.density = unit(v[P_L_DENS]);
     va.shape = unit(v[P_SHAPE]);
     va.cutoff = unit(v[P_CUTOFF]);
     va.motion = unit(v[P_MOTION]);
@@ -556,6 +598,8 @@ static void map_params(void)
     p->shimmer = unit(v[P_SHIMMER]);
     if (va_on)                           /* VA: its harmonics softened into narrow bands, as PADsynth's are */
         p->spread = 0.22f;
+    if (lg_on)                           /* the live sources: a little narrower (they move by themselves) */
+        p->spread = 0.18f;
     p->voice_cap = SHED_CAP[shed];
     p->no_layers = shed > 0u;
     p->h_count = (uint8_t)(set.v[P_H_COUNT] + 1u);
@@ -704,6 +748,10 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             va_render(&va, buf_l, m);
             aet_live_push(&eng, buf_l, m);
             eng.p.lp_hz = va.fc_now;
+        } else if (lg_on) {              /* a live source: the same */
+            live_kind(&lg, set.slot - SLOT_LIVE0);
+            live_render(&lg, buf_l, m);
+            aet_live_push(&eng, buf_l, m);
         }
         aet_render(&eng, buf_l, buf_r, m);
         for (i = 0; i < m; i++) {
@@ -784,6 +832,7 @@ void app_init(void)
         aet_set_par(&eng, core1_run, core1_wait);
 #endif
     va_init(&va);
+    live_init(&lg);
     mod_step(0.0f);
     map_params();
     source_set(set.slot);
@@ -1268,7 +1317,7 @@ static const uint8_t *page_params(void)
         return pp;
     default:
         return set.slot == SLOT_PAD ? PAGE_PAD : set.slot == SLOT_VA ? PAGE_VA : set.slot == SLOT_HARM ? PAGE_HARM :
-               PAGE_SAMPLE;
+               slot_live(set.slot) ? PAGE_LIVE : PAGE_SAMPLE;
     }
 }
 
@@ -1338,7 +1387,7 @@ static void page_set(uint32_t pg);
 typedef struct {
     uint8_t dest, lo, hi, both;          /* a destination, its amount's range in %, both signs */
 } motion_route_t;
-static const motion_route_t MOTION_ROUTES[4][6] = {
+static const motion_route_t MOTION_ROUTES[5][6] = {
     {{D_POSITION, 15, 40, 1}, {D_SPREAD, 15, 40, 0}, {D_TILT, 10, 25, 1}, {D_SHIMMER, 10, 35, 0},
      {D_SUB, 10, 30, 0}, {D_WIDTH, 10, 25, 1}},
     {{D_BRIGHT, 15, 35, 1}, {D_BAND, 15, 40, 1}, {D_INHARM, 5, 20, 0}, {D_ODD, 15, 40, 1},
@@ -1347,6 +1396,8 @@ static const motion_route_t MOTION_ROUTES[4][6] = {
      {D_SHIMMER, 10, 35, 0}, {D_SUB, 10, 30, 0}},
     {{D_FOCUS, 20, 50, 1}, {D_BOOST, 15, 40, 1}, {D_SLOPE, 10, 30, 1}, {D_EVENODD, 20, 50, 1},
      {D_HBAND, 10, 30, 0}, {D_SHIMMER, 10, 35, 0}},
+    {{D_LTONE, 15, 35, 1}, {D_LCHAR, 15, 40, 1}, {D_LDENS, 10, 30, 1}, {D_LMOVE, 10, 30, 0},
+     {D_TILT, 10, 25, 1}, {D_SHIMMER, 10, 35, 0}},
 };
 
 static uint32_t motion_rnd(uint32_t *r, uint32_t n)   /* 0 .. n-1 */
