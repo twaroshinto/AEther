@@ -119,9 +119,17 @@ enum { SLOT_PAD, SLOT_VA, SLOT_HARM, SLOT_SMP0, SLOT_CHOIR = SLOT_SMP0, SLOT_GLA
 #define NSLOT (SLOT_LIVE0 + LIVE_N)
 static int slot_sample(uint32_t s) { return s >= SLOT_SMP0 && s <= SLOT_USER; }   /* a sample, built-in or loaded */
 static int slot_live(uint32_t s) { return s >= SLOT_LIVE0 && s < NSLOT; }
+/* the kinds of source ALGORITHM picks; SELECT picks within SAMPLE (the built-in ones, USER) and LIVE */
+enum { K_SAMPLE, K_LIVE, K_PAD, K_HARM, K_VA, NKIND };
+static const char *const KIND_NAME[NKIND] = {"SAMPLE", "LIVE", "PAD", "HARM", "VA"};
+static const char *slot_item(uint32_t s);
+static uint32_t kind_of(uint32_t s)
+{
+    return slot_sample(s) ? K_SAMPLE : slot_live(s) ? K_LIVE : s == SLOT_PAD ? K_PAD : s == SLOT_HARM ? K_HARM : K_VA;
+}
 static const char *slot_name(uint32_t s)
 {
-    static const char *const LIVE_NAME[LIVE_N] = {"LIVE VOX", "LIVE AIR", "LIVE BOW", "LIVE BELL"};
+    static const char *const LIVE_NAME[LIVE_N] = {"VOX", "AIR", "BOW", "BELL"};
     return s == SLOT_PAD ? "PAD" : s == SLOT_VA ? "VA" : s == SLOT_HARM ? "HARM" :
            s < SLOT_USER ? aet_builtin[s - SLOT_SMP0].name : s == SLOT_USER ? "USER" : LIVE_NAME[(s - SLOT_LIVE0) % LIVE_N];
 }
@@ -1001,6 +1009,8 @@ static struct {
     uint32_t used;                       /* buttons held that did something else (a modifier): no press on release */
     uint8_t help;                        /* HOME held: the buttons' map on the screen */
     uint32_t preset_warn;                /* PRESETS turned with unsaved changes: until when a turn loads */
+    uint8_t last_sample, last_live;
+    uint32_t lit_nav;                    /* the page buttons lit (EDIT ENV LFO SEQ FX GLO HOME SEL) */      /* SELECT's choice in SAMPLE and in LIVE, for ALGORITHM to come back to */
 } ui;
 static void ui_dirty_params(void) { ui.redraw = 1; }
 
@@ -1352,7 +1362,9 @@ static void speak(void)                  /* a screen reader that has just starte
     if (ann_on() && ann_where()) {
         t[0] = 0;
         text_cat(t, APP_NAME ". ");
-        text_cat(t, slot_name(set.slot));
+        text_cat(t, KIND_NAME[kind_of(set.slot)]);
+        text_cat(t, " ");
+        text_cat(t, slot_item(set.slot));
         text_cat(t, ". ");
         text_cat(t, PRESETS[set.preset].name);
         text_cat(t, ". ");
@@ -1492,6 +1504,22 @@ static void param_turn(uint32_t p, int32_t d)
     param_say(p);
 }
 
+/* the source's name within its kind: the sample's (USER: the loaded one's), the generator's; "" for PAD, HARM, VA */
+static const char *slot_item(uint32_t s)
+{
+    if (s == SLOT_USER && user_sample())
+        return ((const smp_hdr_t *)plat_data(SMP_HDR_OFF))->name;
+    return kind_of(s) == K_SAMPLE || kind_of(s) == K_LIVE ? slot_name(s) : "";
+}
+
+static void slot_remember(uint32_t s)    /* (a preset's source counts too) */
+{
+    if (kind_of(s) == K_SAMPLE)
+        ui.last_sample = (uint8_t)s;
+    if (kind_of(s) == K_LIVE)
+        ui.last_live = (uint8_t)s;
+}
+
 static void slot_set(uint32_t slot)
 {
     if (slot == SLOT_USER && !user_sample()) {
@@ -1499,16 +1527,47 @@ static void slot_set(uint32_t slot)
         return;
     }
     set.slot = (uint8_t)slot;
+    slot_remember(slot);
     set_dirty = 1;
     edited = 1;
     if (!page_ok(ui.page))
         page_set(PG_SOURCE);
     apply();
     ev_push(Q_SOURCE, slot, 0);
-    if (slot == SLOT_USER)
-        app_say("SOURCE", ((const smp_hdr_t *)plat_data(SMP_HDR_OFF))->name);
-    else
-        app_say("SOURCE", slot_name(slot));
+    app_say(KIND_NAME[kind_of(slot)], slot_item(slot));
+}
+
+/* ALGORITHM: the next kind (back to what SELECT last picked in it) */
+static void kind_step(int32_t e)
+{
+    uint32_t k = (kind_of(set.slot) + (uint32_t)(e % (int32_t)NKIND + (int32_t)NKIND)) % NKIND;
+    static const uint8_t FIXED[NKIND] = {0, 0, SLOT_PAD, SLOT_HARM, SLOT_VA};
+    slot_remember(set.slot);             /* (where it is now: what a preset chose counts too) */
+    if (!slot_sample(ui.last_sample) || (ui.last_sample == SLOT_USER && !user_sample()))
+        ui.last_sample = SLOT_CHOIR;
+    if (!slot_live(ui.last_live))
+        ui.last_live = SLOT_LIVE0;
+    slot_set(k == K_SAMPLE ? ui.last_sample : k == K_LIVE ? ui.last_live : FIXED[k]);
+}
+
+/* SELECT: the next sample (USER when one is loaded) or generator; PAD, HARM and VA are one each */
+static void item_step(int32_t e)
+{
+    uint32_t k = kind_of(set.slot), s = set.slot, i;
+    if (k != K_SAMPLE && k != K_LIVE) {
+        app_say(KIND_NAME[k], "ONE OF ITS KIND");
+        return;
+    }
+    for (i = 0; i < (uint32_t)(e < 0 ? -e : e); i++) {
+        if (k == K_LIVE) {
+            s = SLOT_LIVE0 + (s - SLOT_LIVE0 + (e > 0 ? 1u : LIVE_N - 1u)) % LIVE_N;
+            continue;
+        }
+        do
+            s = SLOT_SMP0 + (s - SLOT_SMP0 + (e > 0 ? 1u : AET_NBUILTIN)) % (AET_NBUILTIN + 1u);
+        while (s == SLOT_USER && !user_sample());
+    }
+    slot_set(s);
 }
 
 static int key_note(uint32_t k) { return 53 + (int)k + 12 * set.octave; }   /* key 0 is F3 */
@@ -1779,17 +1838,10 @@ static void input(void)
         default: break;              /* ARP: free (unlit) */
         }
     }
-    if ((e = plat_enc(EN_SELECT)) != 0)
-        page_step(e);
-    if ((e = plat_enc(EN_ALGO)) != 0) {
-        int32_t s = set.slot, i;
-        for (i = 0; i < (e < 0 ? -e : e); i++) {   /* USER only when a sample is loaded */
-            s = (s + (e > 0 ? 1 : NSLOT - 1)) % NSLOT;
-            if (s == SLOT_USER && !user_sample())
-                s = (s + (e > 0 ? 1 : NSLOT - 1)) % NSLOT;
-        }
-        slot_set((uint32_t)s);
-    }
+    if ((e = plat_enc(EN_SELECT)) != 0)  /* which sample, which generator */
+        item_step(e);
+    if ((e = plat_enc(EN_ALGO)) != 0)    /* which kind of source */
+        kind_step(e);
     if ((e = plat_enc(EN_PRESET)) != 0) {
         uint32_t now = plat_ms();
         if (edited && now >= ui.preset_warn) {   /* the first turn with changes not saved: a warning, no load */
@@ -1797,6 +1849,7 @@ static void input(void)
             ui.preset_warn = now + 4000u;
         } else {
             preset_load((uint32_t)((int32_t)set.preset + (int32_t)NPRESET * 4 + e));
+            slot_remember(set.slot);
             set_dirty = 1;
             edited = 0;
             ui.preset_warn = now + 4000u;    /* (browsing on: no warning while turning) */
@@ -1853,11 +1906,16 @@ static void input(void)
         ui.redraw = 1;
     ui.keys = keys;
     ui.btn = btn;
-    {   /* lit: the page's button, what is on (HOLD, FREEZE, changes to SAVE), what is held; dim: what else works
-         * (ARP does nothing: dark). PLAY's LED green */
+    {   /* lit: the page's button (while no page button is held: then that one alone, as LFO, ENV and HOME act
+         * when let go), what is on (HOLD, FREEZE, changes to SAVE); dim: what else works (ARP does nothing: dark,
+         * held or not). PLAY's LED green */
         const uint32_t works = ((1u << NB) - 1u) & ~(1u << B_ARP), play = 1u << B_PLAY;
-        uint32_t lit = btn | 1u << GROUP_BTN[group_of(ui.page)] | (set_dirty ? 1u << B_SAVE : 0u) |
-                       (hold ? play : 0u) | (freeze ? 1u << B_REC : 0u), dim = works & ~lit;
+        const uint32_t nav = 1u << B_EDIT | 1u << B_ENV | 1u << B_LFO | 1u << B_SEQ | 1u << B_FX | 1u << B_GLO |
+                             1u << B_HOME | 1u << B_SEL;
+        uint32_t held = btn & works, where = held & nav ? 0u : 1u << GROUP_BTN[group_of(ui.page)];
+        uint32_t lit = held | where | (set_dirty ? 1u << B_SAVE : 0u) | (hold ? play : 0u) |
+                       (freeze ? 1u << B_REC : 0u), dim = works & ~lit;
+        ui.lit_nav = lit & nav;          /* (for the simulator's checks) */
         lit = (lit & ~play) | (lit & play ? LED_PLAY_GREEN : 0u);
         dim = (dim & ~play) | (dim & play ? LED_PLAY_GREEN : 0u);
         plat_lights(lit, keys, dim, 0, 2);
@@ -1878,9 +1936,10 @@ static void draw_header(void)
         int32_t x = cv_text(8, 6, &FONT_B, ui.msg[0], C_WHITE);
         cv_text(x + 8, 6, &FONT_B, ui.msg[1], C_HI);
     } else {
-        int32_t x = cv_text(8, 6, &FONT_B, APP_NAME, C_WHITE);
-        x = cv_text(x + 10, 10, &FONT_XS, slot_name(set.slot), C_HI);
-        x = cv_text(x + 8, 10, &FONT_XS, PRESETS[set.preset].name, C_GRAY);
+        int32_t x = cv_text(8, 6, &FONT_B, KIND_NAME[kind_of(set.slot)], C_WHITE);   /* ALGORITHM */
+        if (slot_item(set.slot)[0])                                                     /* SELECT */
+            x = cv_text(x + 8, 6, &FONT_B, slot_item(set.slot), C_HI);
+        x = cv_text(x + 10, 10, &FONT_XS, PRESETS[set.preset].name, C_GRAY);
         if (edited)                      /* changed since chosen (or saved) */
             cv_text(x + 2, 10, &FONT_XS, "*", C_GRAY);
         if (hold)
@@ -2131,7 +2190,7 @@ static void help_draw(void)
                                             {"SOURCE", "TONE"}, {"SETUP", ""}, {"MAIN", "ALL OFF"},
                                             {"SAVE", ""}, {"", ""}, {"EVOLVE", ""}, {"HOLD", ""}, {"FREEZE", ""}};
     static const char *const TIPS[] = {"HOLD LFO OR ENV, TURN A KNOB:", "  IT MODULATES THAT KNOB",
-                                       "SEQ: EVOLVE, HOW THE SOUND MOVES", "SELECT, SEL: EVERY PAGE IN TURN",
+                                       "SEQ: EVOLVE, HOW THE SOUND MOVES", "ALGORITHM: KIND  SELECT: WHICH",
                                        "HOME ON MAIN PAGE: ALL NOTES OFF"};
     uint32_t r, c, i, cur = GROUP_BTN[group_of(ui.page)];
     cv_text(8, 4, &FONT_B, "BUTTONS", C_WHITE);
@@ -2352,6 +2411,9 @@ int app_expect(const char *what, int *got)
         *got = set_dirty;
     else if (!strcmp(what, "edited"))     /* changed since the preset was chosen or saved (PRESETS warns) */
         *got = edited;
+    else if (!strcmp(what, "lit"))        /* the page buttons lit, as B_* bits (FX 1, SEL 2, ENV 4, LFO 8, EDIT 16,
+                                          * GLO 32, HOME 64, SEQ 512) */
+        *got = (int)ui.lit_nav;
     else if (!strcmp(what, "help"))       /* HOME held: the buttons' map */
         *got = ui.help;
     else if (!strcmp(what, "moving"))     /* something moves the sound over time (EVOLVE) */

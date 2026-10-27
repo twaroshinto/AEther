@@ -1,7 +1,7 @@
 # HARM, its pages, the harmonic envelopes, and the modulators (LFO 1, LFO 2, MOD ENV)
 wait 600
-# HARM is the third source: from CHOIR, one back
-spin ALGO -1
+# ALGORITHM's kinds: SAMPLE, LIVE, PAD, HARM, VA; from SAMPLE (CHOIR), two back is HARM
+spin ALGO -2
 wait 50
 expect slot 2
 expect page 0
@@ -86,7 +86,7 @@ tap LFO
 wait 30
 expect page 7
 # away from HARM, its pages go: LFO stays, EDIT has SOURCE alone, SEL goes on to AMP, MOD ENV 1
-spin ALGO 1
+spin ALGO 2
 wait 50
 expect slot 3
 tap EDIT

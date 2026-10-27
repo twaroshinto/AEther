@@ -16,9 +16,9 @@ All screenshots come from the browser emulator, which runs the same code as the 
 | No. | Control | What it does |
 |---|---|---|
 | 1 | **MASTER** | volume |
-| 2 | **SELECT** | steps through every page in turn (like SEL) |
+| 2 | **SELECT** | picks which sample or which LIVE generator (within the kind ALGORITHM picked) |
 | 3 | **PRESETS** | picks a preset (31 factory presets) |
-| 4 | **ALGORITHM** | picks the sound source (PAD, VA, HARM, 16 samples, USER, 4 LIVE sources) |
+| 4 | **ALGORITHM** | picks the kind of source: SAMPLE, LIVE, PAD, HARM, VA |
 | 5 | screen | source and preset, a view (spectrum, harmonics, LFO, matrix), the current page's four parameters |
 | 6 | **KNOB 1–4** | the current page's four parameters, in screen order: top left, top right, bottom left, bottom right |
 | 7 | **FX** | the COLOR page |
@@ -58,7 +58,7 @@ There are three rules:
    to the page name show how many pages the group has and which one you are on.
 3. **HOME** always goes back to the main page (SOURCE). Pressed on the main page, it silences all notes.
 
-**SEL** and the **SELECT** knob step through every page in turn, group by group.
+**SEL** steps through every page in turn, group by group.
 
 **The button map.** Hold **HOME** and the screen shows what each button does right now. The outlined button is
 the group you are in. Let go of HOME to return.
@@ -79,7 +79,7 @@ your changes are not lost to an accidental nudge. SAVE keeps them.
 
 ![The screen with the CHOIR sample](img/manual/sample.png)
 
-- **Top:** the name, the source (orange) and the preset (grey), with an asterisk once you have changed something. On the right HOLD and FREEZE when they are on, and
+- **Top:** the kind of source (white), the sample or generator picked (orange) and the preset (grey), with an asterisk once you have changed something. On the right HOLD and FREEZE when they are on, and
   LOAD while the overload guard is working. After each knob move its name and value show here for a moment.
 
 - **Middle:** depends on the page. Usually the spectrum of the last frame, from 40 Hz to 16 kHz, with a line at
@@ -95,16 +95,25 @@ your changes are not lost to an accidental nudge. SAVE keeps them.
 - **Footer:** octave, number of sounding voices (up to 8), processor load, and on the right **MOVING** or
   **STATIC**: whether anything moves the sound over time.
 
-## Sources (ALGORITHM)
+## Sources (ALGORITHM and SELECT)
 
-| Source | What it is |
-|---|---|
-| **PAD** | ready-made harmonic clouds (PADsynth): every harmonic is a blurred band |
-| **VA** | a virtual-analog oscillator with a filter, smeared live |
-| **HARM** | a harmonic generator: count, slope, emphasis, 4 envelopes on chosen harmonics |
-| **CHOIR … TAPE** | 16 built-in samples: choir, glass, strings, wind, piano, cello, flute, organ, kalimba, brass, tanpura, rain, birds, whisper, gamelan, tape piano |
-| **USER** | a sample loaded from a computer (appears only after loading) |
-| **LIVE VOX, AIR, BOW, BELL** | generators playing live: voices, wind, bowed strings, bells; no sample memory, never repeating, changing slowly by themselves |
+The sources come in five kinds. **ALGORITHM** picks the kind, **SELECT** the sample or generator within it. A kind
+remembers what you last picked in it: back in SAMPLE, the same sample plays. With PAD, HARM and VA, SELECT changes
+nothing: each is one of its kind.
+
+| ALGORITHM | SELECT picks | What it is |
+|---|---|---|
+| **SAMPLE** | CHOIR … TAPE, USER | recordings: 16 built-in samples and one loaded from a computer (USER appears only after loading) |
+| **LIVE** | VOX, AIR, BOW, BELL | generators playing live: voices, wind, bowed strings, bells; no sample memory, changing slowly by themselves |
+| **PAD** | – | ready-made harmonic clouds (PADsynth): every harmonic is a blurred band |
+| **HARM** | – | a harmonic generator: count, slope, emphasis, 4 envelopes on chosen harmonics |
+| **VA** | – | a virtual-analog oscillator with a filter, smeared live |
+
+The header shows the kind (white), the sample or generator picked (orange) and the preset (grey), e.g. "SAMPLE CHOIR
+GLACIER".
+
+The samples: choir, glass, strings, wind, piano, cello, flute, organ, kalimba, brass, tanpura, rain, birds, whisper,
+gamelan, tape piano.
 
 With samples, C4 plays the original pitch and other keys shift the whole spectrum.
 
@@ -505,6 +514,6 @@ the mouse, Shift-click the keys (the key stays down).
 | `P` | PLAY (HOLD) |
 | `O` | REC (FREEZE) |
 | `Esc` | HOME |
-| `↑` / `↓` on the panel | SELECT (pages) |
+| `↑` / `↓` on the panel | SELECT (which sample or generator) |
 
 ![The emulator with the HARM VOWELS preset](img/manual/panel_harm.png)

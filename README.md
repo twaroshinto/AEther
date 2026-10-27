@@ -65,7 +65,7 @@ oryginału w paśmie 5–16 kHz średnio o 2,0 dB z SBR, a bez SBR o 14,4 dB.
 ## Obsługa
 
 Skrót (pełna wersja w [docs/MANUAL.md](docs/MANUAL.md), po angielsku [docs/MANUAL.en.md](docs/MANUAL.en.md)):
-**ALGORITHM** wybiera źródło, **PRESETS** preset, **KNOB 1–4** to cztery parametry bieżącej strony. Strony są pod
+**ALGORITHM** wybiera rodzaj źródła (SAMPLE, LIVE, PAD, HARM, VA), **SELECT** który sample albo generator, **PRESETS** preset, **KNOB 1–4** to cztery parametry bieżącej strony. Strony są pod
 przyciskami: **EDIT** (źródło; przy HARM też TONE i HARM ENV A–D), **ENV** (AMP, MOD ENV 1–2), **LFO** (LFO 1–3,
 MATRIX), **SEQ** (EVOLVE: ruch w czasie), **FX** (COLOR), **GLO** (SETUP). Przycisk wraca na ostatnio oglądaną stronę
 swojej grupy, a kolejne naciśnięcie przechodzi dalej. **HOME** wraca na stronę główną (na niej wycisza), a

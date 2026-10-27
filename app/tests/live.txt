@@ -1,11 +1,17 @@
-# the live sources (dsp/live.c): after USER in ALGORITHM's list, so four back from CHOIR (past HARM, VA, PAD) is
-# LIVE BELL. Each plays a chord, moves by itself, and has its own page (TONE, MOVE, CHARACTER, DENSITY)
+# the live sources (dsp/live.c): ALGORITHM's LIVE (one on from SAMPLE), SELECT picks VOX, AIR, BOW, BELL. Each plays
+# a chord, moves by itself, and has its own page (TONE, MOVE, CHARACTER, DENSITY)
 wait 600
+listen
 expect slot 3
-spin ALGO -4
+spin ALGO 1
+wait 50
+expect slot 20
+said LIVE
+expect page 0
+# SELECT back from VOX: BELL
+spin SELECT -1
 wait 50
 expect slot 23
-expect page 0
 key 7 down 100
 key 11 down 100
 wav live_bell.wav
@@ -13,18 +19,18 @@ wait 4000
 expect voices 2
 expect peak_db_min -30
 shot live_bell.png
-# LIVE BOW, LIVE AIR, LIVE VOX: each sounds
-spin ALGO -1
+# BOW, AIR, VOX: each sounds
+spin SELECT -1
 wait 50
 expect slot 22
 wait 3000
 expect peak_db_min -30
-spin ALGO -1
+spin SELECT -1
 wait 50
 expect slot 21
 wait 3000
 expect peak_db_min -30
-spin ALGO -1
+spin SELECT -1
 wait 50
 expect slot 20
 # VOX's page: DENSITY (KNOB 4) up, six voices
@@ -37,10 +43,24 @@ expect peak_db_min -30
 shot live_vox.png
 key 7 up
 key 11 up
-# on, past the last: PAD
-spin ALGO 4
+# ALGORITHM away and back: LIVE comes back to VOX, SAMPLE to CHOIR
+spin ALGO 1
 wait 50
 expect slot 0
+spin ALGO -1
+wait 50
+expect slot 20
+spin ALGO -1
+wait 50
+expect slot 3
+# SELECT on PAD: one of its kind
+spin ALGO 2
+wait 50
+expect slot 0
+spin SELECT 1
+wait 50
+expect slot 0
+said ONE OF ITS KIND
 # the live presets (27 on: SPIRIT CHOIR .. CRYSTAL VOICES), each moving
 spin PRESET 1
 wait 50

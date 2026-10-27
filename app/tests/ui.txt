@@ -12,9 +12,9 @@ release HOME
 wait 30
 expect help 0
 expect page 0
-# VA (two back from CHOIR). LFO held, KNOB 2 (CUTOFF) turned: LFO 1 > CUTOFF in the matrix's first free slot (4:
+# VA (one back from SAMPLE). LFO held, KNOB 2 (CUTOFF) turned: LFO 1 > CUTOFF in the matrix's first free slot (4:
 # GLACIER's own motion takes 1-3)
-spin ALGO -2
+spin ALGO -1
 wait 50
 expect slot 1
 press LFO
@@ -52,6 +52,25 @@ turn K4 3
 release LFO
 wait 30
 said NO MODULATION
+# the lights: the page's group lit (EDIT: 16); a page button held is lit alone, even LFO, ENV and HOME that act when
+# let go (LFO: 8, not LFO and EDIT); ARP held does not light
+expect lit 16
+press LFO
+wait 100
+expect lit 8
+release LFO
+wait 30
+expect lit 8
+press HOME
+wait 100
+expect lit 64
+release HOME
+wait 30
+expect lit 16
+press ARP
+wait 100
+expect lit 16
+release ARP
 # each button brings back the page last seen in its group
 tap LFO
 tap LFO

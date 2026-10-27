@@ -15,9 +15,9 @@ Wszystkie zrzuty pochodzą z emulatora w przeglądarce, w którym działa ten sa
 | Nr | Element | Co robi |
 |---|---|---|
 | 1 | **MASTER** | głośność |
-| 2 | **SELECT** | przewija wszystkie strony po kolei (jak SEL) |
+| 2 | **SELECT** | wybiera, który sample albo który generator LIVE (w obrębie rodzaju wybranego gałką ALGORITHM) |
 | 3 | **PRESETS** | wybiera preset (31 fabrycznych) |
-| 4 | **ALGORITHM** | wybiera źródło dźwięku (PAD, VA, HARM, 16 sampli, USER, 4 źródła LIVE) |
+| 4 | **ALGORITHM** | wybiera rodzaj źródła: SAMPLE, LIVE, PAD, HARM, VA |
 | 5 | ekran | źródło i preset, podgląd (widmo, harmoniczne, LFO, matryca), cztery parametry bieżącej strony |
 | 6 | **KNOB 1–4** | cztery parametry bieżącej strony, w kolejności jak na ekranie: lewy górny, prawy górny, lewy dolny, prawy dolny |
 | 7 | **FX** | strona COLOR |
@@ -57,7 +57,7 @@ Zasady są trzy:
    nazwie strony pokazują, ile stron ma grupa i na której jesteś.
 3. **HOME** zawsze wraca na stronę główną (SOURCE). Wciśnięty na stronie głównej wycisza wszystkie nuty.
 
-**SEL** i gałka **SELECT** przechodzą przez wszystkie strony po kolei, grupa po grupie.
+**SEL** przechodzi przez wszystkie strony po kolei, grupa po grupie.
 
 **Mapa przycisków.** Przytrzymaj **HOME**, a na ekranie pojawi się, co teraz robi każdy przycisk. Jego obramowanie
 pokazuje grupę, w której jesteś. Puść HOME, żeby wrócić.
@@ -78,7 +78,7 @@ nie znikną więc przez przypadkowe trącenie gałki. Zapisujesz je przyciskiem 
 
 ![Ekran przy samplu CHOIR](img/manual/sample.png)
 
-- **Góra:** nazwa, źródło (pomarańczowe) i preset (szary), z gwiazdką, gdy coś w nim zmieniłeś. Po prawej HOLD i FREEZE, gdy są włączone. Po każdym
+- **Góra:** rodzaj źródła (biały), wybrany sample albo generator (pomarańczowy) i preset (szary), z gwiazdką, gdy coś w nim zmieniłeś. Po prawej HOLD i FREEZE, gdy są włączone. Po każdym
   ruchu gałki przez chwilę widać tu jej nazwę i wartość.
 
 - **Środek:** zależy od strony. Zwykle to widmo ostatniej ramki, od 40 Hz do 16 kHz, z liniami co oktawę. Przy
@@ -94,16 +94,25 @@ nie znikną więc przez przypadkowe trącenie gałki. Zapisujesz je przyciskiem 
 - **Stopka:** oktawa, liczba brzmiących głosów (do 8), obciążenie procesora i po prawej **MOVING** albo **STATIC**,
   czyli czy coś porusza dźwiękiem w czasie. Gdy działa bezpiecznik przeciążenia, w nagłówku pojawia się napis LOAD.
 
-## Źródła (ALGORITHM)
+## Źródła (ALGORITHM i SELECT)
 
-| Źródło | Co to jest |
-|---|---|
-| **PAD** | gotowe chmury harmoniczne (PADsynth): każda harmoniczna to rozmyte pasmo |
-| **VA** | oscylator wirtualnie analogowy z filtrem, rozmywany na żywo |
-| **HARM** | generator harmonicznych: liczba, nachylenie, uwypuklenie, 4 obwiednie na wybrane harmoniczne |
-| **CHOIR … TAPE** | 16 wbudowanych sampli: chór, szkło, struny, wiatr, fortepian, wiolonczela, flet, organy, kalimba, sekcja dęta, tanpura, deszcz, ptaki, szept, gamelan, pianino z taśmy |
-| **USER** | sample wgrany z komputera (pojawia się dopiero po wgraniu) |
-| **LIVE VOX, AIR, BOW, BELL** | generatory grające na żywo: głosy, wiatr, smyczki, dzwony; nie zajmują pamięci na sample, nigdy się nie powtarzają i same powoli się zmieniają |
+Źródła są w pięciu rodzajach. **ALGORITHM** wybiera rodzaj, a **SELECT** konkretny sample albo generator w jego
+obrębie. Rodzaj pamięta, co w nim ostatnio wybrałeś: gdy wrócisz do SAMPLE, zagra ten sam sample. Przy PAD, HARM i VA
+SELECT nic nie zmienia, bo każde z nich jest jedno.
+
+| ALGORITHM | SELECT wybiera | Co to jest |
+|---|---|---|
+| **SAMPLE** | CHOIR … TAPE, USER | nagrania: 16 wbudowanych sampli i sample wgrany z komputera (USER pojawia się dopiero po wgraniu) |
+| **LIVE** | VOX, AIR, BOW, BELL | generatory grające na żywo: głosy, wiatr, smyczki, dzwony; nie zajmują pamięci na sample i same powoli się zmieniają |
+| **PAD** | – | gotowe chmury harmoniczne (PADsynth): każda harmoniczna to rozmyte pasmo |
+| **HARM** | – | generator harmonicznych: liczba, nachylenie, uwypuklenie, 4 obwiednie na wybrane harmoniczne |
+| **VA** | – | oscylator wirtualnie analogowy z filtrem, rozmywany na żywo |
+
+Nagłówek pokazuje rodzaj (biały), wybrany sample albo generator (pomarańczowy) i preset (szary), np. „SAMPLE CHOIR
+GLACIER”.
+
+Sample: chór, szkło, struny, wiatr, fortepian, wiolonczela, flet, organy, kalimba, sekcja dęta, tanpura, deszcz, ptaki,
+szept, gamelan, pianino z taśmy.
 
 Przy samplach klawisz C4 gra oryginalną wysokość, a inne klawisze przesuwają całe widmo.
 
@@ -506,6 +515,6 @@ Shift-klikiem (klawisz zostaje wciśnięty).
 | `P` | PLAY (HOLD) |
 | `O` | REC (FREEZE) |
 | `Esc` | HOME |
-| `↑` / `↓` na panelu | SELECT (strony) |
+| `↑` / `↓` na panelu | SELECT (który sample albo generator) |
 
 ![Emulator z presetem HARM VOWELS](img/manual/panel_harm.png)

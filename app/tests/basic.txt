@@ -43,7 +43,7 @@ expect page 0
 spin K1 80
 wait 100
 expect v0 127
-# the PAD source (three back from CHOIR, past HARM and VA), a preset, HOLD
+# the PAD source (ALGORITHM's kinds: SAMPLE, LIVE, PAD, HARM, VA; three back from SAMPLE), a preset, HOLD
 spin ALGO -3
 wait 50
 expect slot 0
@@ -107,7 +107,7 @@ expect slot 0
 expect late 0
 # VA: the virtual-analog voice, its page, a note through the LIVE source
 tap HOME
-spin ALGO 1
+spin ALGO 2
 wait 50
 expect slot 1
 tap EDIT
