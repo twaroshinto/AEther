@@ -1,0 +1,115 @@
+# the panel: pages by button (each brings back its last page), HOME, the buttons' map, LFO / ENV held + a knob,
+# the PRESETS warning, the lights
+wait 600
+listen
+expect page 0
+# HOME held: the buttons' map; let go, the page is as it was
+press HOME
+wait 600
+expect help 1
+shot help.png
+release HOME
+wait 30
+expect help 0
+expect page 0
+# VA (two back from CHOIR). LFO held, KNOB 2 (CUTOFF) turned: LFO 1 > CUTOFF in the matrix's first slot
+spin ALGO -2
+wait 50
+expect slot 1
+press LFO
+wait 500
+said TURN A KNOB
+turn K2 10
+wait 30
+release LFO
+wait 30
+said LFO 1 > CUTOFF
+expect page 0
+expect v63 1
+expect v64 14
+expect v65 >70
+shot route.png
+# ENV held, KNOB 3 (RESO) turned down: MOD ENV 1 > RESO, negative, in the next slot
+press ENV
+turn K3 -5
+release ENV
+wait 30
+expect page 0
+expect v66 4
+expect v67 15
+expect v68 59
+# turned back to 0 %: the slot is free again
+press ENV
+turn K3 5
+release ENV
+wait 30
+expect v66 0
+expect v67 0
+# a knob that cannot be modulated says so (MOTION is the VA's own LFO)
+press LFO
+turn K4 3
+release LFO
+wait 30
+said NO MODULATION
+# each button brings back the page last seen in its group
+tap LFO
+tap LFO
+wait 30
+expect page 8
+tap EDIT
+wait 30
+expect page 0
+tap LFO
+wait 30
+expect page 8
+tap ENV
+wait 30
+expect page 6
+tap FX
+wait 30
+expect page 13
+tap GLO
+wait 30
+expect page 14
+# HOME: the main page; on the main page, every note off (and HOLD off)
+tap PLAY
+wait 30
+expect hold 1
+tapkey 7 100
+wait 300
+expect voices 1
+tap HOME
+wait 30
+expect page 0
+expect voices 1
+tap HOME
+wait 30
+expect hold 0
+wait 8000
+expect voices 0
+# the header marks the changes (edited); PRESETS warns once, then browses
+expect edited 1
+spin PRESET 1
+wait 50
+said NOT SAVED
+expect edited 1
+spin PRESET 1
+wait 50
+expect preset 1
+expect edited 0
+spin PRESET 1
+wait 50
+expect preset 2
+# SAVE: nothing to warn about
+turn K1 2
+wait 30
+expect edited 1
+tap SAVE
+wait 30
+expect edited 0
+expect dirty 0
+spin PRESET 1
+wait 50
+expect preset 3
+leds
+expect late 0

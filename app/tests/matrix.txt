@@ -1,6 +1,9 @@
-# the modulation matrix (GLO), its sources (LFOs, envelopes, velocity, the wheel), and the overload guard
+# the modulation matrix (LFO's last page), its sources (LFOs, envelopes, velocity, the wheel), and the overload guard
 wait 600
-tap GLO
+tap LFO
+tap LFO
+tap LFO
+tap LFO
 wait 30
 expect page 12
 # slot 1: LFO 1 > TILT +100 % (source 1, destination 4, amount 127)
@@ -27,11 +30,9 @@ expect src6 100
 expect mod2 >120
 shot matrix.png
 key 7 up
-# MOD ENV 1 rises with a note and falls after it (source 4): attack 0.1 s, release 0.3 s
-tap LFO
-tap LFO
-tap LFO
-tap LFO
+# MOD ENV 1 rises with a note and falls after it (source 4): attack 0.1 s, release 0.3 s (ENV: AMP, MOD ENV 1)
+tap ENV
+tap ENV
 wait 30
 expect page 10
 spin K1 -40
@@ -72,7 +73,7 @@ key 7 up
 key 9 up
 wait 10000
 expect shed 0
-tap SEQ
+tap GLO
 wait 30
 expect page 14
 shot setup.png

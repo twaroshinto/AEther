@@ -16,35 +16,70 @@ All screenshots come from the browser emulator, which runs the same code as the 
 | No. | Control | What it does |
 |---|---|---|
 | 1 | **MASTER** | volume |
-| 2 | **SELECT** | steps through the parameter pages (like SEL) |
+| 2 | **SELECT** | steps through every page in turn (like SEL) |
 | 3 | **PRESETS** | picks a preset (26 factory presets) |
 | 4 | **ALGORITHM** | picks the sound source (PAD, VA, HARM, 16 samples, USER) |
 | 5 | screen | source and preset, a view (spectrum, harmonics, LFO, matrix), the current page's four parameters |
 | 6 | **KNOB 1–4** | the current page's four parameters, in screen order: top left, top right, bottom left, bottom right |
 | 7 | **FX** | the COLOR page |
-| 8 | **SEL** | the next page |
-| 9 | **ENV** | the SPACE page; with the HARM source further presses step through ENV A, B, C, D |
-| 10 | **LFO** | the modulator pages: LFO 1 → LFO 2 → LFO 3 → MOD ENV 1 → MOD ENV 2 |
-| 11 | **EDIT** | the SOURCE page; with HARM a second press gives TONE |
-| 12 | **GLO** | MATRIX: the modulation matrix |
-| 13 | **HOME** | silences all notes and turns HOLD off |
+| 8 | **SEL** | the next page (every page in turn) |
+| 9 | **ENV** | the envelopes: AMP → MOD ENV 1 → MOD ENV 2; held + a knob: modulate with an envelope |
+| 10 | **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX; held + a knob: modulate with an LFO |
+| 11 | **EDIT** | the source: SOURCE, and with HARM also TONE and HARM ENV A–D |
+| 12 | **GLO** | SETUP: global settings (the second core, the overload guard) |
+| 13 | **HOME** | back to the main page (SOURCE); on it, silences all notes and turns HOLD off; held, shows the button map |
 | 14 | **SAVE** | stores the settings; the button lights when something is unsaved |
-| 15 | **SEQ** | SETUP: the second core (experimental) and the overload guard's state |
+| 15 | **SEQ** | nothing yet (unlit) |
 | 16 | **PLAY** | HOLD: notes keep sounding after you let go of the keys, and a new chord replaces the old one |
 | 17 | **REC** | FREEZE: freezes the sample's or VA's spectrum at the current moment (no effect with PAD and HARM) |
 | 18 | **OCT− / OCT+** | keyboard octave, ±2 |
 | 19 | keys | 27 keys with velocity and pressure, from F3 (at octave 0) |
 
-ARP is not used yet.
+ARP and SEQ are not used yet, so they stay dark.
 
-The button of the group you are in lights up: EDIT for SOURCE/TONE, ENV for SPACE and ENV A–D, LFO for the LFOs and
-MOD ENVs, GLO for MATRIX, FX for COLOR, SEQ for SETUP.
+## Getting around
+
+The pages are grouped under five buttons. Each button has its own pages:
+
+| Button | Pages | What is there |
+|---|---|---|
+| **EDIT** | SOURCE (+ TONE, HARM ENV A–D with HARM) | the source's sound |
+| **ENV** | AMP → MOD ENV 1 → MOD ENV 2 | the envelopes: volume and two for modulation |
+| **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX | the LFOs and the matrix that routes them |
+| **FX** | COLOR | colour: TILT, SUB, SHIMMER, SIZE |
+| **GLO** | SETUP | global settings |
+
+There are three rules:
+
+1. **Another group's button** brings back the page you were last on in that group. If you were editing LFO 2, went
+   to AMP and pressed LFO, you are back on LFO 2.
+2. **The same button again** goes to the group's next page (after the last one, back to the first). The dots next
+   to the page name show how many pages the group has and which one you are on.
+3. **HOME** always goes back to the main page (SOURCE). Pressed on the main page, it silences all notes.
+
+**SEL** and the **SELECT** knob step through every page in turn, group by group.
+
+**The button map.** Hold **HOME** and the screen shows what each button does right now. The outlined button is
+the group you are in. Let go of HOME to return.
+
+![The button map with HOME held](img/manual/help.png)
+
+**Button lights.** The button of the group you are in is lit brightly, as are PLAY while HOLD is on, REC while FREEZE
+is on, and SAVE while there are unsaved changes. Buttons that do something glow dimly; the unused ones (ARP, SEQ) are
+dark.
+
+**Quick modulation.** Hold **LFO** (or **ENV**) and turn a knob on any page. The LFO (or MOD ENV) you looked at last
+starts moving the parameter under that knob, by as much as you turn. Details in the modulation section.
+
+**Presets and your changes.** When you change something after choosing a preset, an asterisk (*) appears next to
+its name in the header. The first turn of PRESETS then only warns ("NOT SAVED"); the next one loads another preset. So
+your changes are not lost to an accidental nudge. SAVE keeps them.
 
 ## The screen
 
 ![The screen with the CHOIR sample](img/manual/sample.png)
 
-- **Top:** the name, the source (orange) and the preset (grey). On the right HOLD and FREEZE when they are on, and
+- **Top:** the name, the source (orange) and the preset (grey), with an asterisk once you have changed something. On the right HOLD and FREEZE when they are on, and
   LOAD while the overload guard is working. After each knob move its name and value show here for a moment.
 
 - **Middle:** depends on the page. Usually the spectrum of the last frame, from 40 Hz to 16 kHz, with a line at
@@ -73,8 +108,8 @@ With samples, C4 plays the original pitch and other keys shift the whole spectru
 
 ## Pages and knobs
 
-Each page is four parameters under KNOB 1–4. The SOURCE and TONE pages depend on the source. TONE and ENV A–D are
-there only with HARM.
+Each page is four parameters under KNOB 1–4. The SOURCE page depends on the source. TONE and HARM ENV A–D are there
+only with HARM.
 
 ### SOURCE: sample (CHOIR … TAPE, USER)
 
@@ -122,7 +157,7 @@ HARM builds the sound from harmonics; the screen shows their levels as bars H1�
 | 3 | **EVEN/ODD** | EVEN 100 % … BOTH … ODD 100 % | towards ODD it silences the even harmonics, towards EVEN the odd ones (the fundamental stays) |
 | 4 | **H BAND** | 1–150 cents | width of each harmonic: narrow is a pure tone, wide is a choir |
 
-A second press of EDIT opens **TONE**: emphasis or a notch around a chosen harmonic, and the response to velocity.
+A second press of EDIT opens **TONE**, and further presses the harmonic envelopes HARM ENV A–D. TONE is emphasis or a notch around a chosen harmonic, and the response to velocity.
 
 ![The TONE page](img/manual/tone.png)
 
@@ -133,7 +168,7 @@ A second press of EDIT opens **TONE**: emphasis or a notch around a chosen harmo
 | 3 | **FOCUS W** | 0.4–6 harmonics | width of the emphasis: narrow is one harmonic, wide is a group |
 | 4 | **VEL>TONE** | 0–100 % | a softer hit gives a darker colour, by as much as you set |
 
-### ENV A–D: harmonic envelopes (HARM)
+### HARM ENV A–D: harmonic envelopes (EDIT, with HARM)
 
 Four envelopes, each controlling chosen harmonics. They run from the start of each note: they rise over ATTACK to
 full level, fall over DECAY to the SUSTAIN level and stay there. Harmonics no envelope touches play all the time.
@@ -157,11 +192,13 @@ Examples:
 - **ENV B = HIGH 13+, ATTACK 4 s, SUSTAIN 100 %** (right screenshot): the high harmonics come in slowly and the colour opens up.
 - **TARGET = H1, SUSTAIN 30 %**: the fundamental fades after the attack, leaving the "air".
 
-How the whole note fades after you let go is set separately: RELEASE on the SPACE page.
+How the whole note fades after you let go is set separately: RELEASE on the AMP page.
 
-### SPACE (ENV)
+### AMP (ENV)
 
-![The SPACE page](img/manual/space.png)
+The first page under ENV: the whole note's volume envelope, and the output.
+
+![The AMP page](img/manual/amp.png)
 
 | Knob | Parameter | Range | What it does |
 |---|---|---|---|
@@ -173,14 +210,26 @@ How the whole note fades after you let go is set separately: RELEASE on the SPAC
 ### Modulation: LFO 1–3, MOD ENV 1–2 and MATRIX
 
 Modulation has two parts. The **modulators** (three LFOs and two envelopes) only move; on their own they change
-nothing. The **matrix** (MATRIX, the GLO button) has eight slots, and each connects one source to one parameter with
+nothing. The **matrix** (MATRIX, the last page under LFO) has eight slots, and each connects one source to one parameter with
 a chosen amount. One LFO can therefore move several parameters at once, each by a different amount and in a
 different direction. One parameter can also listen to several sources, and their effects add up.
 
 Modulation adds to the knob's setting: the knob sets the centre and the modulation moves around it. AMOUNT ±100 %
 means a move over the parameter's whole range, and a negative AMOUNT reverses the direction.
 
-#### LFO 1, LFO 2, LFO 3
+#### Quick: hold LFO or ENV and turn a knob
+
+You do not have to open the matrix. On any page, hold **LFO** and turn the knob of the parameter that should move.
+The header shows what you made, e.g. "LFO 1 > CUTOFF +19%". Turning right gives a positive amount, left a negative
+one, and back to 0 % frees the slot. **ENV** held works the same way, with a MOD ENV. It uses the LFO (or MOD ENV)
+you looked at last, LFO 1 and MOD ENV 1 at first. Everything lands in the matrix, where you can refine it later.
+
+![LFO held and KNOB 2 turned on the VA page: LFO 1 > CUTOFF](img/manual/route.png)
+
+If a parameter cannot be modulated (e.g. SIZE or MOTION), the header says "NO MODULATION". When all 8 slots are
+taken, it says "MATRIX FULL".
+
+#### LFO 1, LFO 2, LFO 3 (LFO)
 
 ![LFO 1 in the EVOLVER preset](img/manual/lfo.png)
 
@@ -193,7 +242,7 @@ means a move over the parameter's whole range, and a negative AMOUNT reverses th
 
 The screen shows the waveform with a dot at the current place, and above it the LFO's destinations from the matrix.
 
-#### MOD ENV 1 and MOD ENV 2
+#### MOD ENV 1 and MOD ENV 2 (ENV, after AMP)
 
 ![MOD ENV 1 in the EVOLVER preset](img/manual/menv.png)
 
@@ -207,7 +256,7 @@ The screen shows the waveform with a dot at the current place, and above it the 
 The envelope starts again with every new note (from the keys and from MIDI). It is shared by all voices: it moves a
 parameter of the whole sound, not of a single note. The screen shows its shape with a line at the current level.
 
-#### MATRIX (GLO)
+#### MATRIX (LFO, after LFO 3)
 
 ![MATRIX in the EVOLVER preset](img/manual/matrix.png)
 
@@ -268,7 +317,7 @@ A few ideas:
 | 3 | **SHIMMER** | 0–100 % | adds the same spectrum an octave higher |
 | 4 | **SIZE** | 23–186 ms | the same as SIZE on the sample page, available with every source |
 
-### SETUP (SEQ)
+### SETUP (GLO)
 
 ![The SETUP page](img/manual/setup.png)
 
@@ -324,14 +373,15 @@ back, one step at a time. You see its state on the SETUP page (OVERLOAD GUARD) a
 | 26 | DEEP | PAD | dark, with a strong octave below |
 
 Choosing a preset changes the source, every knob, the modulators and the matrix. SAVE stores the current state,
-including knob changes, but there is only one save slot.
+including knob changes, but there is only one save slot. With unsaved changes (the asterisk next to the name), the
+first turn of PRESETS only warns, and the next one changes the preset.
 
 ## Playing
 
 - **HOLD (PLAY):** play a chord, let go, and it stays. The next chord replaces it. Pressing PLAY again turns HOLD
   off and releases the notes.
 
-- **FREEZE (REC):** holds the sample's or VA's spectrum at the current moment. Notes, envelopes and SPACE carry
+- **FREEZE (REC):** holds the sample's or VA's spectrum at the current moment. Notes, envelopes and AMP carry
   on, and the scan moves on from where it was once FREEZE is off. With PAD and HARM the spectrum comes from the
   knobs anyway, so FREEZE changes nothing.
 

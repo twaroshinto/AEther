@@ -15,35 +15,70 @@ Wszystkie zrzuty pochodzą z emulatora w przeglądarce, w którym działa ten sa
 | Nr | Element | Co robi |
 |---|---|---|
 | 1 | **MASTER** | głośność |
-| 2 | **SELECT** | przewija strony parametrów (jak SEL) |
+| 2 | **SELECT** | przewija wszystkie strony po kolei (jak SEL) |
 | 3 | **PRESETS** | wybiera preset (26 fabrycznych) |
 | 4 | **ALGORITHM** | wybiera źródło dźwięku (PAD, VA, HARM, 16 sampli, USER) |
 | 5 | ekran | źródło i preset, podgląd (widmo, harmoniczne, LFO, matryca), cztery parametry bieżącej strony |
 | 6 | **KNOB 1–4** | cztery parametry bieżącej strony, w kolejności jak na ekranie: lewy górny, prawy górny, lewy dolny, prawy dolny |
 | 7 | **FX** | strona COLOR |
-| 8 | **SEL** | następna strona |
-| 9 | **ENV** | strona SPACE, a przy źródle HARM kolejne naciśnięcia przechodzą przez ENV A, B, C, D |
-| 10 | **LFO** | strony modulatorów: LFO 1 → LFO 2 → LFO 3 → MOD ENV 1 → MOD ENV 2 |
-| 11 | **EDIT** | strona SOURCE, a przy HARM drugie naciśnięcie daje TONE |
-| 12 | **GLO** | MATRIX: matryca modulacji |
-| 13 | **HOME** | wycisza wszystkie nuty i wyłącza HOLD |
+| 8 | **SEL** | następna strona (wszystkie po kolei) |
+| 9 | **ENV** | obwiednie: AMP → MOD ENV 1 → MOD ENV 2; przytrzymany + gałka: modulacja obwiednią |
+| 10 | **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX; przytrzymany + gałka: modulacja LFO |
+| 11 | **EDIT** | źródło: SOURCE, a przy HARM dalej TONE i HARM ENV A–D |
+| 12 | **GLO** | SETUP: ustawienia globalne (drugi rdzeń, bezpiecznik przeciążenia) |
+| 13 | **HOME** | wraca na stronę główną (SOURCE); na niej wycisza wszystkie nuty i wyłącza HOLD; przytrzymany pokazuje mapę przycisków |
 | 14 | **SAVE** | zapisuje ustawienia, przycisk świeci, gdy jest coś niezapisanego |
-| 15 | **SEQ** | SETUP: drugi rdzeń (eksperymentalny) i stan bezpiecznika przeciążenia |
+| 15 | **SEQ** | na razie nic (nie świeci) |
 | 16 | **PLAY** | HOLD: nuty grają dalej po puszczeniu klawiszy, a nowy akord zastępuje poprzedni |
 | 17 | **REC** | FREEZE: zamraża widmo sampla albo VA w bieżącej chwili (przy PAD i HARM nie działa) |
 | 18 | **OCT− / OCT+** | oktawa klawiatury, ±2 |
 | 19 | klawisze | 27 klawiszy z dynamiką i naciskiem, od F3 (przy oktawie 0) |
 
-ARP jest na razie wolny.
+ARP i SEQ są na razie wolne, więc nie świecą.
 
-Przycisk grupy, w której jesteś, świeci: EDIT dla SOURCE/TONE, ENV dla SPACE i ENV A–D, LFO dla LFO i MOD ENV,
-GLO dla MATRIX, FX dla COLOR, SEQ dla SETUP.
+## Jak się poruszać
+
+Strony są pogrupowane pod pięcioma przyciskami. Każdy przycisk ma swoje strony:
+
+| Przycisk | Strony | Co tam jest |
+|---|---|---|
+| **EDIT** | SOURCE (+ TONE, HARM ENV A–D przy HARM) | dźwięk źródła |
+| **ENV** | AMP → MOD ENV 1 → MOD ENV 2 | obwiednie: głośności i dwie modulacyjne |
+| **LFO** | LFO 1 → LFO 2 → LFO 3 → MATRIX | LFO i matryca, która je rozprowadza |
+| **FX** | COLOR | barwa: TILT, SUB, SHIMMER, SIZE |
+| **GLO** | SETUP | ustawienia globalne |
+
+Zasady są trzy:
+
+1. **Przycisk innej grupy** wraca na stronę, na której byłeś w tej grupie ostatnio. Jeśli edytowałeś LFO 2, poszedłeś
+   do AMP i wcisnąłeś LFO, wracasz do LFO 2.
+2. **Ten sam przycisk ponownie** przechodzi do następnej strony grupy (po ostatniej wraca do pierwszej). Kropki przy
+   nazwie strony pokazują, ile stron ma grupa i na której jesteś.
+3. **HOME** zawsze wraca na stronę główną (SOURCE). Wciśnięty na stronie głównej wycisza wszystkie nuty.
+
+**SEL** i gałka **SELECT** przechodzą przez wszystkie strony po kolei, grupa po grupie.
+
+**Mapa przycisków.** Przytrzymaj **HOME**, a na ekranie pojawi się, co teraz robi każdy przycisk. Jego obramowanie
+pokazuje grupę, w której jesteś. Puść HOME, żeby wrócić.
+
+![Mapa przycisków pod przytrzymanym HOME](img/manual/help.png)
+
+**Światła przycisków.** Jasno świeci przycisk grupy, w której jesteś, a także PLAY przy włączonym HOLD, REC przy
+FREEZE i SAVE, gdy są niezapisane zmiany. Przyciski, które coś robią, świecą słabo, a nieużywane (ARP, SEQ) są
+ciemne.
+
+**Szybka modulacja.** Przytrzymaj **LFO** (albo **ENV**) i kręć gałką na dowolnej stronie. Ostatnio oglądane LFO
+(albo MOD ENV) zacznie poruszać parametrem pod tą gałką, z siłą, którą wykręcisz. Szczegóły w części o modulacji.
+
+**Presety a zmiany.** Gdy zmienisz coś po wybraniu presetu, przy jego nazwie w nagłówku pojawia się gwiazdka (*).
+Wtedy pierwszy ruch gałką PRESETS tylko ostrzega („NOT SAVED”), a dopiero kolejny wczytuje inny preset. Twoje zmiany
+nie znikną więc przez przypadkowe trącenie gałki. Zapisujesz je przyciskiem SAVE.
 
 ## Ekran
 
 ![Ekran przy samplu CHOIR](img/manual/sample.png)
 
-- **Góra:** nazwa, źródło (pomarańczowe) i preset (szary). Po prawej HOLD i FREEZE, gdy są włączone. Po każdym
+- **Góra:** nazwa, źródło (pomarańczowe) i preset (szary), z gwiazdką, gdy coś w nim zmieniłeś. Po prawej HOLD i FREEZE, gdy są włączone. Po każdym
   ruchu gałki przez chwilę widać tu jej nazwę i wartość.
 
 - **Środek:** zależy od strony. Zwykle to widmo ostatniej ramki, od 40 Hz do 16 kHz, z liniami co oktawę. Przy
@@ -73,7 +108,7 @@ Przy samplach klawisz C4 gra oryginalną wysokość, a inne klawisze przesuwają
 
 ## Strony i gałki
 
-Każda strona to cztery parametry pod KNOB 1–4. Strony SOURCE i TONE zależą od źródła. TONE i ENV A–D są tylko
+Każda strona to cztery parametry pod KNOB 1–4. Strona SOURCE zależy od źródła. TONE i HARM ENV A–D są tylko
 przy HARM.
 
 ### SOURCE: sample (CHOIR … TAPE, USER)
@@ -122,7 +157,7 @@ HARM buduje dźwięk z harmonicznych, a na ekranie widzisz ich poziomy jako słu
 | 3 | **EVEN/ODD** | EVEN 100 % … BOTH … ODD 100 % | w stronę ODD wycisza parzyste, w stronę EVEN nieparzyste (podstawa zostaje) |
 | 4 | **H BAND** | 1–150 centów | szerokość każdej harmonicznej: wąsko to czysty ton, szeroko to chór |
 
-Drugie naciśnięcie EDIT otwiera **TONE**: uwypuklenie lub wycięcie wokół wybranej harmonicznej i reakcję na
+Drugie naciśnięcie EDIT otwiera **TONE**, a kolejne obwiednie harmonicznych HARM ENV A–D. TONE to uwypuklenie lub wycięcie wokół wybranej harmonicznej oraz reakcja na
 dynamikę.
 
 ![Strona TONE](img/manual/tone.png)
@@ -134,7 +169,7 @@ dynamikę.
 | 3 | **FOCUS W** | 0,4–6 harmonicznych | szerokość uwypuklenia: wąsko to jedna harmoniczna, szeroko to grupa |
 | 4 | **VEL>TONE** | 0–100 % | cichsze uderzenie daje ciemniejszą barwę: tyle, ile ustawisz |
 
-### ENV A–D: obwiednie harmonicznych (HARM)
+### HARM ENV A–D: obwiednie harmonicznych (EDIT, przy HARM)
 
 Cztery obwiednie, z których każda steruje wybranymi harmonicznymi. Biegną od początku każdej nuty: narastają
 przez ATTACK do pełnej głośności, opadają przez DECAY do poziomu SUSTAIN i tam zostają. Harmoniczne, których
@@ -159,11 +194,13 @@ Przykłady:
 - **ENV B = HIGH 13+, ATTACK 4 s, SUSTAIN 100 %** (prawy zrzut): wysokie harmoniczne wchodzą powoli i barwa się otwiera.
 - **TARGET = H1, SUSTAIN 30 %**: podstawa cichnie po ataku, zostaje „powietrze”.
 
-Wyciszenie całej nuty po puszczeniu klawisza ustawiasz osobno: RELEASE na stronie SPACE.
+Wyciszenie całej nuty po puszczeniu klawisza ustawiasz osobno: RELEASE na stronie AMP.
 
-### SPACE (ENV)
+### AMP (ENV)
 
-![Strona SPACE](img/manual/space.png)
+Pierwsza strona pod ENV: obwiednia głośności całej nuty i wyjście.
+
+![Strona AMP](img/manual/amp.png)
 
 | Gałka | Parametr | Zakres | Co robi |
 |---|---|---|---|
@@ -175,14 +212,27 @@ Wyciszenie całej nuty po puszczeniu klawisza ustawiasz osobno: RELEASE na stron
 ### Modulacja: LFO 1–3, MOD ENV 1–2 i MATRIX
 
 Modulacja składa się z dwóch części. **Modulatory** (trzy LFO i dwie obwiednie) tylko się poruszają i same niczego
-nie zmieniają. **Matryca** (MATRIX, przycisk GLO) ma osiem slotów i każdy łączy jedno źródło z jednym parametrem z
+nie zmieniają. **Matryca** (MATRIX, ostatnia strona pod LFO) ma osiem slotów i każdy łączy jedno źródło z jednym parametrem z
 wybraną siłą. Jedno LFO może więc poruszać kilkoma parametrami naraz, każdym z inną siłą i w inną stronę. Jeden
 parametr może też słuchać kilku źródeł, a ich działanie się sumuje.
 
 Modulacja dodaje się do ustawienia gałki: gałka wyznacza środek, a modulacja porusza wokół niego. AMOUNT ±100 %
 oznacza ruch o cały zakres parametru, a ujemny AMOUNT odwraca kierunek.
 
-#### LFO 1, LFO 2, LFO 3
+#### Szybko: przytrzymaj LFO albo ENV i kręć gałką
+
+Nie musisz wchodzić do matrycy. Na dowolnej stronie przytrzymaj **LFO** i kręć gałką parametru, który ma się ruszać.
+Nagłówek pokazuje, co powstało, np. „LFO 1 > CUTOFF +19%”. Kręcenie w prawo to dodatnia siła, w lewo ujemna, a
+powrót do 0 % zwalnia slot. **ENV** przytrzymany działa tak samo, tylko z obwiednią MOD ENV. Użyte zostanie LFO
+(albo MOD ENV), które oglądałeś ostatnio, a na początku LFO 1 i MOD ENV 1. Wszystko ląduje w matrycy, gdzie możesz to
+potem poprawić.
+
+![Przytrzymane LFO i KNOB 2 na stronie VA: LFO 1 > CUTOFF](img/manual/route.png)
+
+Jeśli parametru nie da się modulować (np. SIZE albo MOTION), nagłówek powie „NO MODULATION”. Gdy wszystkie 8 slotów
+jest zajętych, powie „MATRIX FULL”.
+
+#### LFO 1, LFO 2, LFO 3 (LFO)
 
 ![LFO 1 w presecie EVOLVER](img/manual/lfo.png)
 
@@ -195,7 +245,7 @@ oznacza ruch o cały zakres parametru, a ujemny AMOUNT odwraca kierunek.
 
 Na ekranie widać przebieg z kropką w bieżącym miejscu, a nad nim listę celów tego LFO z matrycy.
 
-#### MOD ENV 1 i MOD ENV 2
+#### MOD ENV 1 i MOD ENV 2 (ENV, po stronie AMP)
 
 ![MOD ENV 1 w presecie EVOLVER](img/manual/menv.png)
 
@@ -209,7 +259,7 @@ Na ekranie widać przebieg z kropką w bieżącym miejscu, a nad nim listę cel�
 Obwiednia startuje od nowa przy każdej nowej nucie (z klawiatury i z MIDI). Jest wspólna dla wszystkich głosów:
 porusza parametrem całego dźwięku, a nie pojedynczej nuty. Na ekranie widać jej kształt z kreską na bieżącym poziomie.
 
-#### MATRIX (GLO)
+#### MATRIX (LFO, po LFO 3)
 
 ![MATRIX w presecie EVOLVER](img/manual/matrix.png)
 
@@ -270,7 +320,7 @@ Kilka pomysłów:
 | 3 | **SHIMMER** | 0–100 % | dokłada to samo widmo oktawę wyżej |
 | 4 | **SIZE** | 23–186 ms | to samo co SIZE na stronie sampla, dostępne przy każdym źródle |
 
-### SETUP (SEQ)
+### SETUP (GLO)
 
 ![Strona SETUP](img/manual/setup.png)
 
@@ -326,14 +376,15 @@ kroku. Stan widać na stronie SETUP (OVERLOAD GUARD) i w nagłówku (LOAD).
 | 26 | DEEP | PAD | ciemny, z mocną oktawą niżej |
 
 Wybranie presetu zmienia źródło, wszystkie gałki, modulatory i matrycę. SAVE zapamiętuje bieżący stan, także po
-zmianach gałek, ale jest tylko jedno miejsce zapisu.
+zmianach gałek, ale jest tylko jedno miejsce zapisu. Gdy masz niezapisane zmiany (gwiazdka przy nazwie), pierwszy
+ruch PRESETS tylko ostrzega, a dopiero następny zmienia preset.
 
 ## Grane
 
 - **HOLD (PLAY):** zagraj akord, puść, a on trwa. Następny akord zastępuje poprzedni. Ponowne PLAY wyłącza HOLD
   i puszcza nuty.
 
-- **FREEZE (REC):** zatrzymuje widmo sampla albo VA w bieżącej chwili. Nuty, obwiednie i SPACE grają dalej, a
+- **FREEZE (REC):** zatrzymuje widmo sampla albo VA w bieżącej chwili. Nuty, obwiednie i AMP grają dalej, a
   skan rusza z miejsca po wyłączeniu FREEZE. Przy PAD i HARM widmo i tak powstaje z gałek, więc FREEZE nic nie zmienia.
 
 - **Opóźnienie:** nuta zaczyna brzmieć w następnej ramce, po ~100–140 ms przy SIZE 186 ms i ~20 ms przy 23 ms.

@@ -24,7 +24,7 @@ wavstop
 expect peak_db_min -24
 expect voices 0
 expect late 0
-# the pages and their knobs
+# the pages and their knobs: SEL from SOURCE goes on to AMP (ENV's first page)
 tap SEL
 wait 30
 expect page 6
@@ -47,6 +47,12 @@ expect v0 127
 spin ALGO -3
 wait 50
 expect slot 0
+# with changes not saved, PRESETS warns first and loads at the next turn
+listen
+spin PRESET 1
+wait 50
+expect preset 0
+said NOT SAVED
 turn PRESET 2
 wait 50
 expect preset 2
@@ -117,7 +123,9 @@ shot va.png
 expect peak_db_min -30
 expect late 0
 key 7 up
-# the VA presets switch to VA by themselves
+# the VA presets switch to VA by themselves (the first turn warns: K2 was turned)
+spin PRESET 1
+wait 50
 spin PRESET 3
 wait 50
 expect preset 5

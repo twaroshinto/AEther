@@ -109,16 +109,31 @@ static const char *slot_name(uint32_t s)
     return s == SLOT_PAD ? "PAD" : s == SLOT_VA ? "VA" : s == SLOT_HARM ? "HARM" :
            s < SLOT_USER ? aet_builtin[s - SLOT_SMP0].name : "USER";
 }
-enum { PG_SOURCE, PG_TONE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, PG_SPACE, PG_LFO1, PG_LFO2, PG_LFO3, PG_MENV1,
+enum { PG_SOURCE, PG_TONE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, PG_AMP, PG_LFO1, PG_LFO2, PG_LFO3, PG_MENV1,
        PG_MENV2, PG_MATRIX, PG_COLOR, PG_SETUP, NPAGE };
-static const char *const PAGE_NAME[NPAGE] = {"SOURCE", "TONE", "ENV A", "ENV B", "ENV C", "ENV D", "SPACE", "LFO 1",
-                                             "LFO 2", "LFO 3", "MOD ENV 1", "MOD ENV 2", "MATRIX", "COLOR", "SETUP"};
+static const char *const PAGE_NAME[NPAGE] = {"SOURCE", "TONE", "HARM ENV A", "HARM ENV B", "HARM ENV C",
+                                             "HARM ENV D", "AMP", "LFO 1", "LFO 2", "LFO 3", "MOD ENV 1", "MOD ENV 2",
+                                             "MATRIX", "COLOR", "SETUP"};
+/* The pages by button, in the order its presses step through them (and SEL / SELECT through all, group by group):
+ * EDIT the sound's source (HARM: TONE and its harmonic envelopes too), ENV the envelopes, LFO the LFOs and the
+ * matrix that routes them, FX the colour, GLO the global setup. A button brings back the page last seen in its
+ * group, then steps on. */
+enum { G_EDIT, G_ENV, G_LFO, G_FX, G_GLO, NGROUP };
+static const uint8_t GROUP_BTN[NGROUP] = {B_EDIT, B_ENV, B_LFO, B_FX, B_GLO};
+static const char *const GROUP_NAME[NGROUP] = {"EDIT", "ENV", "LFO", "FX", "GLO"};
+static const uint8_t GROUP_PAGES[NGROUP][7] = {
+    {PG_SOURCE, PG_TONE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, NPAGE},
+    {PG_AMP, PG_MENV1, PG_MENV2, NPAGE},
+    {PG_LFO1, PG_LFO2, PG_LFO3, PG_MATRIX, NPAGE},
+    {PG_COLOR, NPAGE},
+    {PG_SETUP, NPAGE},
+};
 static const uint8_t PAGE_SAMPLE[4] = {P_STRETCH, P_POSITION, P_SPREAD, P_SIZE};
 static const uint8_t PAGE_PAD[4] = {P_BRIGHT, P_BAND, P_INHARM, P_ODD};
 static const uint8_t PAGE_VA[4] = {P_SHAPE, P_CUTOFF, P_RESO, P_MOTION};
 static const uint8_t PAGE_HARM[4] = {P_H_COUNT, P_H_SLOPE, P_H_ODD, P_H_BAND};
 static const uint8_t PAGE_TONE[4] = {P_H_FOCUS, P_H_BOOST, P_H_WIDTH, P_H_VEL};
-static const uint8_t PAGE_SPACE[4] = {P_ATTACK, P_RELEASE, P_WIDTH, P_LEVEL};
+static const uint8_t PAGE_AMP[4] = {P_ATTACK, P_RELEASE, P_WIDTH, P_LEVEL};
 static const uint8_t PAGE_COLOR[4] = {P_TILT, P_SUB, P_SHIMMER, P_SIZE};
 
 typedef struct {
@@ -202,6 +217,7 @@ typedef struct {
 } settings_t;
 static settings_t set;
 static uint8_t set_dirty;
+static uint8_t edited;                   /* changed since the preset was chosen or the settings saved (PRESETS warns) */
 
 static void ui_dirty_params(void);
 
@@ -790,6 +806,12 @@ static struct {
     uint8_t redraw, redraw_spec;
     uint32_t touched_at;                 /* a knob turned: its value shown big for a moment */
     uint8_t touched;
+    uint8_t last[NGROUP];                /* the page last seen in each button's group */
+    uint8_t lfo, menv;                   /* the LFO and the MOD ENV last seen: what LFO / ENV held + a knob routes */
+    uint32_t down_at[NB];                /* when each button went down */
+    uint32_t used;                       /* buttons held that did something else (a modifier): no press on release */
+    uint8_t help;                        /* HOME held: the buttons' map on the screen */
+    uint32_t preset_warn;                /* PRESETS turned with unsaved changes: until when a turn loads */
 } ui;
 static void ui_dirty_params(void) { ui.redraw = 1; }
 
@@ -1029,26 +1051,24 @@ static int page_ok(uint32_t pg)          /* TONE and ENV A-D are HARM's */
 {
     return set.slot == SLOT_HARM || pg < PG_TONE || pg > PG_ENVD;
 }
-/* the pages of pg's button (EDIT, ENV, LFO; GLO, FX and SEQ have one each) that this source has, in the order the
- * button steps through them: their count */
+static uint32_t group_of(uint32_t pg)
+{
+    uint32_t i, k;
+    for (i = 0; i < NGROUP; i++)
+        for (k = 0; GROUP_PAGES[i][k] != NPAGE; k++)
+            if (GROUP_PAGES[i][k] == pg)
+                return i;
+    return G_EDIT;
+}
+
+/* the pages of pg's group that this source has, in their order: their count */
 static uint32_t page_group(uint32_t pg, uint32_t *g)
 {
-    static const uint8_t GROUP[][6] = {
-        {PG_SOURCE, PG_TONE, NPAGE},
-        {PG_SPACE, PG_ENVA, PG_ENVB, PG_ENVC, PG_ENVD, NPAGE},
-        {PG_LFO1, PG_LFO2, PG_LFO3, PG_MENV1, PG_MENV2, NPAGE},
-    };
-    uint32_t i, k, n;
-    for (i = 0; i < sizeof GROUP / sizeof GROUP[0]; i++)
-        for (k = 0; GROUP[i][k] != NPAGE; k++)
-            if (GROUP[i][k] == pg) {
-                for (n = 0, k = 0; GROUP[i][k] != NPAGE; k++)
-                    if (page_ok(GROUP[i][k]))
-                        g[n++] = GROUP[i][k];
-                return n;
-            }
-    g[0] = pg;
-    return 1;
+    uint32_t i = group_of(pg), k, n = 0;
+    for (k = 0; GROUP_PAGES[i][k] != NPAGE; k++)
+        if (page_ok(GROUP_PAGES[i][k]))
+            g[n++] = GROUP_PAGES[i][k];
+    return n;
 }
 static int page_is_mod(uint32_t pg) { return pg >= PG_LFO1 && pg <= PG_MATRIX; }
 
@@ -1058,7 +1078,7 @@ static const uint8_t *page_params(void)
     uint32_t k;
     switch (ui.page) {
     case PG_TONE: return PAGE_TONE;
-    case PG_SPACE: return PAGE_SPACE;
+    case PG_AMP: return PAGE_AMP;
     case PG_COLOR: return PAGE_COLOR;
     case PG_ENVA: case PG_ENVB: case PG_ENVC: case PG_ENVD:
         for (k = 0; k < 4u; k++)
@@ -1144,6 +1164,8 @@ static void param_say(uint32_t p)
         app_say(v[1] == 'N' ? "2ND CORE ON" : "2ND CORE OFF", "SAVE, THEN RESTART");
 }
 
+static void page_set(uint32_t pg);
+
 static void param_turn(uint32_t p, int32_t d)
 {
     int32_t v = clamp((int32_t)set.v[p] + d, 0, PDEF[p].max);
@@ -1151,6 +1173,7 @@ static void param_turn(uint32_t p, int32_t d)
         return;
     set.v[p] = (uint8_t)v;
     set_dirty = 1;
+    edited = 1;
     apply();
     param_say(p);
 }
@@ -1163,8 +1186,9 @@ static void slot_set(uint32_t slot)
     }
     set.slot = (uint8_t)slot;
     set_dirty = 1;
+    edited = 1;
     if (!page_ok(ui.page))
-        ui.page = PG_SOURCE;
+        page_set(PG_SOURCE);
     apply();
     ev_push(Q_SOURCE, slot, 0);
     if (slot == SLOT_USER)
@@ -1213,28 +1237,99 @@ static void octave_step(int32_t d)
 
 static void page_set(uint32_t pg)
 {
-    ui.page = (uint8_t)(pg % NPAGE);
+    char t[40];
+    pg %= NPAGE;
+    if (!page_ok(pg))
+        pg = PG_SOURCE;
+    ui.page = (uint8_t)pg;
+    ui.last[group_of(pg)] = (uint8_t)pg;
+    if (pg >= PG_LFO1 && pg <= PG_LFO3)
+        ui.lfo = (uint8_t)(pg - PG_LFO1);
+    if (pg == PG_MENV1 || pg == PG_MENV2)
+        ui.menv = (uint8_t)(pg - PG_MENV1);
     ui.redraw = 1;
-    app_say("PAGE", PAGE_NAME[ui.page]);
+    if (ann_on()) {                      /* (the screen shows the page's name already; the reader hears it) */
+        t[0] = 0;
+        text_cat(t, "PAGE ");
+        text_cat(t, PAGE_NAME[pg]);
+        ann_say(t, 0, ANN_NOW);
+    }
 }
 
-static void page_step(int32_t d)         /* the next page this source has, d pages on */
+static void page_step(int32_t d)         /* SEL, SELECT: through every page this source has, group by group */
 {
-    uint32_t pg = ui.page, n = d < 0 ? (uint32_t)-d : (uint32_t)d;
-    while (n--)
-        do
-            pg = (pg + (d > 0 ? 1u : NPAGE - 1u)) % NPAGE;
-        while (!page_ok(pg));
-    page_set(pg);
+    uint8_t order[NPAGE];
+    uint32_t n = 0, i, k, at = 0, m = d < 0 ? (uint32_t)-d : (uint32_t)d;
+    for (i = 0; i < NGROUP; i++)
+        for (k = 0; GROUP_PAGES[i][k] != NPAGE; k++)
+            if (page_ok(GROUP_PAGES[i][k])) {
+                if (GROUP_PAGES[i][k] == ui.page)
+                    at = n;
+                order[n++] = GROUP_PAGES[i][k];
+            }
+    at = (at + (d > 0 ? m : n * 8u - m)) % n;
+    page_set(order[at]);
 }
 
-/* a page button: the first of its pages, then the next of them at each press */
-static void page_button(uint32_t first, uint32_t last)
+/* a page button: the page last seen in its group when away, the group's next page when on it */
+static void page_button(uint32_t gr)
 {
-    uint32_t pg = ui.page >= first && ui.page < last ? ui.page + 1u : first;
-    while (pg <= last && !page_ok(pg))
-        pg++;
-    page_set(pg > last || !page_ok(pg) ? first : pg);
+    uint32_t g[8], n = page_group(GROUP_PAGES[gr][0], g), k;
+    if (group_of(ui.page) != gr) {
+        page_set(page_ok(ui.last[gr]) && group_of(ui.last[gr]) == gr ? ui.last[gr] : g[0]);
+        return;
+    }
+    for (k = 0; k < n && g[k] != ui.page; k++)
+        ;
+    page_set(g[(k + 1u) % n]);
+}
+
+/* LFO / ENV held and a knob turned: the last LFO / MOD ENV seen moves that knob's parameter, by as much as turned
+ * (a slot of the matrix: the one it already has, else a free one; back to 0 % frees it) */
+static void mod_route(uint32_t src, uint32_t p, int32_t e)
+{
+    char t[24], v[16];
+    uint32_t d, k, free_k = NMX;
+    int32_t a;
+    for (d = 1; d < NDEST && MOD_DEST[d] != p; d++)
+        ;
+    if (d >= NDEST) {
+        app_say(PDEF[p].name, "NO MODULATION");
+        return;
+    }
+    for (k = 0; k < NMX; k++) {
+        const uint8_t *m = &set.v[P_MX(k, 0)];
+        if (m[0] == src && m[1] == d)
+            break;
+        if (free_k == NMX && (m[0] == MS_OFF || m[1] == D_OFF))
+            free_k = k;
+    }
+    if (k == NMX) {
+        if (free_k == NMX) {
+            app_say("MATRIX FULL", "8 OF 8 SLOTS");
+            return;
+        }
+        k = free_k;
+        set.v[P_MX(k, 0)] = (uint8_t)src;
+        set.v[P_MX(k, 1)] = (uint8_t)d;
+        set.v[P_MX(k, 2)] = 64u;
+    }
+    a = clamp((int32_t)set.v[P_MX(k, 2)] + e * (e > 2 || e < -2 ? 3 : 1), 1, 127);
+    set.v[P_MX(k, 2)] = (uint8_t)a;
+    set.v[P_MSLOT] = (uint8_t)k;         /* (the matrix page opens on it) */
+    value_text(P_MX(k, 2), v);
+    if (a == 64) {                       /* 0 %: the slot is free again */
+        set.v[P_MX(k, 0)] = MS_OFF;
+        set.v[P_MX(k, 1)] = D_OFF;
+    }
+    set_dirty = 1;
+    edited = 1;
+    apply();
+    t[0] = 0;
+    text_cat(t, MS_NAME[src]);
+    text_cat(t, " > ");
+    text_cat(t, DEST_NAME[d]);
+    app_say(t, v);
 }
 
 /* The keys, sensed (lib/touch: velocity, pressure). Where the sensing never reports a press that the key scan shows
@@ -1287,24 +1382,55 @@ static void input(void)
         }
     }
     for (k = 0; k < NB; k++) {
-        uint32_t bit = 1u << k;
-        if (!(btn & bit) || (ui.btn & bit))
+        uint32_t bit = 1u << k, now = plat_ms();
+        int down = (btn & bit) && !(ui.btn & bit), up = !(btn & bit) && (ui.btn & bit);
+        if (down) {
+            ui.down_at[k] = now;
+            ui.used &= ~bit;
+        }
+        if ((btn & bit) && !(ui.used & bit) && !(ui.used >> NB >> k & 1u) && now - ui.down_at[k] >= 400u) {
+            if (k == B_HOME) {           /* HOME held: what the buttons do */
+                ui.help = 1;
+                ui.used |= bit;
+                ui.redraw = 1;
+            } else if (k == B_LFO || k == B_ENV) {   /* held: a knob routes it */
+                char t[24];
+                t[0] = 0;
+                text_cat(t, MS_NAME[k == B_LFO ? MS_LFO1 + ui.lfo : MS_ENV1 + ui.menv]);
+                text_cat(t, " >");
+                app_say(t, "TURN A KNOB");
+                ui.msg_until = now + 60000u;
+                ui.used |= 1u << NB << k;  /* (the hint shown: once a hold) */
+            }
+        }
+        if (up && (k == B_LFO || k == B_ENV) && (ui.used >> NB >> k & 1u)) {
+            ui.used &= ~(1u << NB << k);
+            ui.msg_until = 0;
+            ui.redraw = 1;
+        }
+        /* LFO, ENV and HOME act when let go (held, they do something else); the rest at once */
+        if (k == B_LFO || k == B_ENV || k == B_HOME) {
+            if (!up)
+                continue;
+            if (k == B_HOME && ui.help) {
+                ui.help = 0;
+                ui.redraw = 1;
+                continue;
+            }
+            if (ui.used & bit)
+                continue;
+        } else if (!down) {
             continue;
+        }
         switch (k) {
         case B_OCTDN: octave_step(-1); break;
         case B_OCTUP: octave_step(1); break;
         case B_SEL: page_step(1); break;
-        case B_EDIT: page_button(PG_SOURCE, PG_TONE); break;
-        case B_ENV:                      /* SPACE, then (HARM) ENV A-D */
-            if (set.slot == SLOT_HARM && (ui.page == PG_SPACE || (ui.page >= PG_ENVA && ui.page < PG_ENVD)))
-                page_set(ui.page == PG_SPACE ? PG_ENVA : ui.page + 1u);
-            else
-                page_set(PG_SPACE);
-            break;
-        case B_LFO: page_button(PG_LFO1, PG_MENV2); break;
-        case B_GLO: page_set(PG_MATRIX); break;
-        case B_SEQ: page_set(PG_SETUP); break;
-        case B_FX: page_set(PG_COLOR); break;
+        case B_EDIT: page_button(G_EDIT); break;
+        case B_ENV: page_button(G_ENV); break;
+        case B_LFO: page_button(G_LFO); break;
+        case B_FX: page_button(G_FX); break;
+        case B_GLO: page_button(G_GLO); break;
         case B_PLAY:
             hold = (uint8_t)!hold;
             if (!hold)
@@ -1316,7 +1442,11 @@ static void input(void)
             apply();
             app_say("FREEZE", freeze ? "ON" : "OFF");
             break;
-        case B_HOME:
+        case B_HOME:                     /* the main page; on it, every note off */
+            if (ui.page != PG_SOURCE) {
+                page_set(PG_SOURCE);
+                break;
+            }
             hold = 0;
             ui.latched[0] = ui.latched[1] = ui.latched[2] = ui.latched[3] = 0;
             ev_push(Q_ALLOFF, 0, 0);
@@ -1325,12 +1455,13 @@ static void input(void)
         case B_SAVE:
             if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
                 set_dirty = 0;
+                edited = 0;
                 app_say("SAVED", "");
             } else {
                 app_say("SAVE", "FAILED");
             }
             break;
-        default: break;
+        default: break;              /* ARP, SEQ: free (unlit) */
         }
     }
     if ((e = plat_enc(EN_SELECT)) != 0)
@@ -1345,19 +1476,38 @@ static void input(void)
         slot_set((uint32_t)s);
     }
     if ((e = plat_enc(EN_PRESET)) != 0) {
-        preset_load((uint32_t)((int32_t)set.preset + (int32_t)NPRESET * 4 + e));
-        set_dirty = 1;
-        if (!page_ok(ui.page))
-            ui.page = PG_SOURCE;
-        apply();
-        ev_push(Q_SOURCE, set.slot, 0);
-        app_say("PRESET", PRESETS[set.preset].name);
+        uint32_t now = plat_ms();
+        if (edited && now >= ui.preset_warn) {   /* the first turn with changes not saved: a warning, no load */
+            app_say("NOT SAVED", "TURN AGAIN TO LOAD");
+            ui.preset_warn = now + 4000u;
+        } else {
+            preset_load((uint32_t)((int32_t)set.preset + (int32_t)NPRESET * 4 + e));
+            set_dirty = 1;
+            edited = 0;
+            ui.preset_warn = now + 4000u;    /* (browsing on: no warning while turning) */
+            if (!page_ok(ui.page))
+                page_set(PG_SOURCE);
+            apply();
+            ev_push(Q_SOURCE, set.slot, 0);
+            app_say("PRESET", PRESETS[set.preset].name);
+        }
     }
     {
         const uint8_t *pp = page_params();
         static const uint8_t KN[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
         for (k = 0; k < 4u; k++)
             if ((e = plat_enc(KN[k])) != 0 && pp[k] != P_NONE) {
+                if (btn & (1u << B_LFO | 1u << B_ENV)) {   /* LFO / ENV held: route it to this knob */
+                    uint32_t b = btn & 1u << B_LFO ? B_LFO : B_ENV;
+                    if (ui.page == PG_MATRIX)
+                        continue;
+                    mod_route(b == B_LFO ? MS_LFO1 + ui.lfo : MS_ENV1 + ui.menv, pp[k], e);
+                    ui.used |= 1u << b;
+                    ui.msg_until = plat_ms() + 1300u;
+                    ui.touched = (uint8_t)k;
+                    ui.touched_at = plat_ms();
+                    continue;
+                }
                 /* the sizes step one a detent; the rest faster when turned fast */
                 param_turn(pp[k], PDEF[pp[k]].max < 127u ? e : e * (e > 2 || e < -2 ? 3 : 1));
                 ui.touched = (uint8_t)k;
@@ -1388,10 +1538,15 @@ static void input(void)
         ui.redraw = 1;
     ui.keys = keys;
     ui.btn = btn;
-    plat_glow(1);
-    plat_leds(btn | (set_dirty ? 1u << B_SAVE : 0u) | (hold ? 1u << B_PLAY : 0u) | (freeze ? 1u << B_REC : 0u) |
-              1u << (ui.page <= PG_TONE ? B_EDIT : ui.page <= PG_SPACE ? B_ENV : ui.page <= PG_MENV2 ? B_LFO :
-                     ui.page == PG_MATRIX ? B_GLO : ui.page == PG_COLOR ? B_FX : B_SEQ), keys);
+    {   /* lit: the page's button, what is on (HOLD, FREEZE, changes to SAVE), what is held; dim: what else works
+         * (ARP and SEQ do nothing: dark). PLAY's LED green */
+        const uint32_t works = ((1u << NB) - 1u) & ~(1u << B_ARP | 1u << B_SEQ), play = 1u << B_PLAY;
+        uint32_t lit = btn | 1u << GROUP_BTN[group_of(ui.page)] | (set_dirty ? 1u << B_SAVE : 0u) |
+                       (hold ? play : 0u) | (freeze ? 1u << B_REC : 0u), dim = works & ~lit;
+        lit = (lit & ~play) | (lit & play ? LED_PLAY_GREEN : 0u);
+        dim = (dim & ~play) | (dim & play ? LED_PLAY_GREEN : 0u);
+        plat_lights(lit, keys, dim, 0, 2);
+    }
 }
 
 void app_input_only(void) { input(); }
@@ -1410,7 +1565,9 @@ static void draw_header(void)
     } else {
         int32_t x = cv_text(8, 6, &FONT_B, APP_NAME, C_WHITE);
         x = cv_text(x + 10, 10, &FONT_XS, slot_name(set.slot), C_HI);
-        cv_text(x + 8, 10, &FONT_XS, PRESETS[set.preset].name, C_GRAY);
+        x = cv_text(x + 8, 10, &FONT_XS, PRESETS[set.preset].name, C_GRAY);
+        if (edited)                      /* changed since chosen (or saved) */
+            cv_text(x + 2, 10, &FONT_XS, "*", C_GRAY);
         if (hold)
             cv_text(196, 2, &FONT_XS, "HOLD", C_HI);
         if (shed)                        /* the overload guard is shedding (SETUP tells more) */
@@ -1593,6 +1750,53 @@ static void draw_setup(void)
     cv_blit(0, SPEC_Y);
 }
 
+/* HOME held: the twelve buttons where they are on the panel, what each does now (the lit one: this page's), and
+ * what the knobs and the holds do. Drawn in three strips (a canvas is 112 rows at most) */
+static void help_draw(void)
+{
+    static const uint8_t ROWS[2][6] = {{B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO},
+                                       {B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC}};
+    static const char *const LABEL[NB] = {"FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ",
+                                          "PLAY", "REC"};
+    static const char *const DOES[NB][2] = {{"COLOR", ""}, {"NEXT", "PAGE"}, {"AMP", "MOD ENV"}, {"LFO 1-3", "MATRIX"},
+                                            {"SOURCE", "TONE"}, {"SETUP", ""}, {"MAIN", "ALL OFF"},
+                                            {"SAVE", ""}, {"", ""}, {"", ""}, {"HOLD", ""}, {"FREEZE", ""}};
+    static const char *const TIPS[] = {"HOLD LFO OR ENV, TURN A KNOB:", "  IT MODULATES THAT KNOB",
+                                       "SELECT, SEL: EVERY PAGE IN TURN", "ALGORITHM: SOURCE  PRESETS: SOUNDS",
+                                       "HOME ON MAIN PAGE: ALL NOTES OFF"};
+    uint32_t r, c, i, cur = GROUP_BTN[group_of(ui.page)];
+    cv_text(8, 4, &FONT_B, "BUTTONS", C_WHITE);
+    cv_text(110, 9, &FONT_XS, "LET GO OF HOME", C_DIM);
+    for (r = 0; r < 2u; r++)
+        for (c = 0; c < 6u; c++) {
+            uint32_t b = ROWS[r][c];
+            int32_t x = 2 + (int32_t)c * 40, y = 30 + (int32_t)r * 56;
+            int on = b == cur, free = !DOES[b][0][0];
+            cv_rect(x, y, 37, 52, on ? C_HI : C_LINE);
+            cv_rect(x + 1, y + 1, 35, 50, C_BLACK);
+            cv_text(x + 4, y + 4, &FONT_XS, LABEL[b], free ? C_DIM : on ? C_HI : C_WHITE);
+            cv_text(x + 3, y + 24, &FONT_T, DOES[b][0], C_GRAY);
+            cv_text(x + 3, y + 37, &FONT_T, DOES[b][1], C_GRAY);
+        }
+    for (i = 0; i < sizeof TIPS / sizeof TIPS[0]; i++)
+        cv_text(6, 148 + (int32_t)i * 18, &FONT_XS, TIPS[i], i < 2u ? C_HI : C_GRAY);
+}
+
+static void draw_help(void)
+{
+    int32_t y;
+    for (y = 0; y < 240; y += 112) {
+        int32_t h = 240 - y < 112 ? 240 - y : 112;
+        cv_begin(240, (uint32_t)h, C_BLACK);
+        cv_oy = -y;                      /* (screen rows y .. y+h-1 of the drawing) */
+        cv_y0 = 0;
+        cv_y1 = h;
+        help_draw();
+        cv_oy = 0;
+        cv_blit(0, (uint32_t)y);
+    }
+}
+
 /* the spectrum of the last frame, log frequency (40 Hz .. 16 kHz), -72 .. -6 dB; the sample's scan along the top */
 static void draw_spectrum(void)
 {
@@ -1703,6 +1907,13 @@ void app_frame(void)
         ui.touched = 0xFF;
         ui.redraw = 1;
     }
+    if (ui.help) {                       /* HOME held: the buttons' map, nothing else */
+        if (ui.redraw) {
+            ui.redraw = 0;
+            draw_help();
+        }
+        return;
+    }
     if (ui.redraw) {
         ui.redraw = 0;
         draw_header();
@@ -1754,6 +1965,10 @@ int app_expect(const char *what, int *got)
         *got = (int)eng.late;
     else if (!strcmp(what, "dirty"))
         *got = set_dirty;
+    else if (!strcmp(what, "edited"))     /* changed since the preset was chosen or saved (PRESETS warns) */
+        *got = edited;
+    else if (!strcmp(what, "help"))       /* HOME held: the buttons' map */
+        *got = ui.help;
     else if (!strcmp(what, "user_len"))   /* the loaded sample's length, 0: none */
         *got = user_sample() ? (int)user_sample()->len : 0;
     else if (!strcmp(what, "sysex_errors"))   /* sample-load commands answered with an error */
