@@ -1,0 +1,56 @@
+# the web editor's SysEx (web/editor): the state, a parameter, the monitor, user presets kept, listed, loaded, deleted
+wait 600
+tx 7D 41 45 10
+expect rx_cmd 17
+expect rx_n 142
+expect rx13 109
+# TILT (12) to 80, as a knob would
+tx 7D 41 45 12 0C 50
+wait 20
+expect v12 80
+expect dirty 1
+tx 7D 41 45 16
+expect rx_cmd 23
+# (a parameter out of range is ignored)
+tx 7D 41 45 12 7F 10
+expect sysex_errors 0
+# kept as user preset 2, "MY"
+tx 7D 41 45 18 02 4D 59
+expect rx_cmd 25
+expect rx5 0
+expect user_used 4
+expect preset 33
+tx 7D 41 45 1A
+expect rx_cmd 27
+expect rx_n 214
+expect rx31 1
+expect rx32 77
+expect rx33 89
+expect rx34 0
+# another sound, then user preset 2 again: TILT back to 80
+tx 7D 41 45 12 0C 14
+wait 20
+expect v12 20
+tx 7D 41 45 14 21
+wait 20
+expect v12 80
+expect preset 33
+# saved, then deleted
+tx 7D 41 45 15
+expect rx_cmd 25
+expect rx5 0
+expect dirty 0
+tx 7D 41 45 1C 02
+expect rx5 0
+expect user_used 0
+expect preset 0
+# a factory preset by number
+tx 7D 41 45 14 01
+wait 20
+expect preset 1
+key 7 down 100
+wait 1500
+tx 7D 41 45 16
+expect rx_cmd 23
+key 7 up
+expect late 0

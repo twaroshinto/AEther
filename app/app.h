@@ -22,15 +22,15 @@ void app_cstart(void);
 #define FM1B_UAC_DEEP 1                  /* the USB recording keeps a half more: the spectral frames are heavy */
 #define APP_CANVAS_PX (240u * 112u)      /* the drawing strips: 112 rows at most (the engine needs the pool) */
 
-/* the store: the settings, the panel calibration (the platform's), and their flash offsets */
-enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_NOBJ };
-#define APP_STORE_MAP {0xFC000u, 0xDC000u}
+/* the store: the settings, the panel calibration (the platform's), the user presets, and their flash offsets */
+enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_USER, OBJ_NOBJ };
+#define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xDA000u}
 
-/* the loaded sample: a header sector, then the samples (int16 mono) up to the panel calibration's sectors */
+/* the loaded sample: a header sector, then the samples (int16 mono) up to the user presets' sectors */
 #define SMP_HDR_OFF PLAT_DATA_LO         /* 0x97000 */
 #define SMP_DATA_OFF (PLAT_DATA_LO + 0x1000u)
-#define SMP_DATA_END 0xDC000u
-#define SMP_MAX_BYTES (SMP_DATA_END - SMP_DATA_OFF)   /* 278528 B: 24 s at 22.05 kHz in ADPCM, 6.3 s in PCM16 */
+#define SMP_DATA_END 0xDA000u
+#define SMP_MAX_BYTES (SMP_DATA_END - SMP_DATA_OFF)   /* 270336 B: 23 s at 22.05 kHz in ADPCM, 6.1 s in PCM16 */
 #define SMP_MAGIC 0x31534541u            /* "AES1" */
 typedef struct {
     uint32_t magic, rate, len, crc;      /* len in samples; crc: CRC-32 (zlib's) of the data */

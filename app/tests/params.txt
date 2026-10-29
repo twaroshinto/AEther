@@ -1,0 +1,3 @@
+# the web editor's map (web/editor/params.json): every parameter's name, range and value texts, the pages, the sources
+wait 100
+params app/build/host/params.json

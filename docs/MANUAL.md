@@ -480,7 +480,8 @@ kroku. Stan widać na stronie SETUP (OVERLOAD GUARD) i w nagłówku (LOAD).
 | 31 | CRYSTAL VOICES | LIVE VOX | wysokie głosy z oktawą wyżej, szybko zmienne samogłoski |
 
 Wybranie presetu zmienia źródło, wszystkie gałki, modulatory i matrycę. SAVE zapamiętuje bieżący stan, także po
-zmianach gałek, ale jest tylko jedno miejsce zapisu. Gdy masz niezapisane zmiany (gwiazdka przy nazwie), pierwszy
+zmianach gałek, ale jest tylko jedno miejsce zapisu. Więcej brzmień zachowasz jako presety użytkownika (do 16) z
+edytora w przeglądarce: pojawiają się na liście PRESETS po fabrycznych, pod swoimi nazwami. Gdy masz niezapisane zmiany (gwiazdka przy nazwie), pierwszy
 ruch PRESETS tylko ostrzega, a dopiero następny zmienia preset.
 
 ## Grane
@@ -513,12 +514,30 @@ Przez USB i gniazdo TRS:
 
 Nuty z klawiatury FM-1 wychodzą po USB.
 
+## Edytor w przeglądarce
+
+Na stronie projektu (**editor/**) jest edytor, który łączy się z FM-1 przez USB (Chrome, Edge albo Opera na
+komputerze; przeglądarka zapyta o dostęp do MIDI z SysEx):
+
+1. Podłącz FM-1 z AEtherem kablem USB, otwórz edytor, wybierz port FM-1 i kliknij **Connect**.
+2. Wszystkie strony (EDIT, ENV, LFO, SEQ, FX, GLO) są widoczne naraz. Każda zmiana na stronie od razu gra w FM-1, a
+   każda zmiana pokrętłem na FM-1 pojawia się na stronie.
+3. Różowe znaczniki na suwakach pokazują, gdzie modulacja (LFO, obwiednie, EVOLVE) przesuwa parametr w tej chwili.
+   Wykres u góry to widmo tego, co gra, z krzywą EQ (ustawioną i zmodulowaną). Matryca pokazuje obok każdego
+   slotu bieżącą wartość jego źródła.
+4. **Zapisz jako preset użytkownika:** nadaj nazwę (do 12 znaków), wybierz jedno z 16 miejsc i zapisz. Preset
+   trafia do pamięci flash FM-1 i pojawia się na liście PRESETS (po 31 fabrycznych). **Zapisz ustawienia** działa
+   jak SAVE na FM-1.
+
+Dwuklik na suwaku przywraca wartość domyślną. Bez podłączonego FM-1 edytor działa jako podgląd i niczego nie
+wysyła.
+
 ## Własny sample
 
 ```sh
 pip install numpy mido python-rtmidi
-python3 tools/aether_load.py moj.wav                 # do 24 s, 22 kHz + odbudowa górnego pasma (SBR)
-python3 tools/aether_load.py moj.wav --rate 11025    # do 48 s
+python3 tools/aether_load.py moj.wav                 # do 23 s, 22 kHz + odbudowa górnego pasma (SBR)
+python3 tools/aether_load.py moj.wav --rate 11025    # do 47 s
 python3 tools/aether_load.py moj.wav --pcm16         # bez szumu kompresji, do 6 s
 ```
 

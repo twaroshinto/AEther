@@ -1,0 +1,699 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MPL-2.0
+     Copyright (C) 2026 fm1-aether contributors
+     AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE).
+     AEther's editor: the FM-1 running AEther, over USB-MIDI SysEx (Web MIDI: Chrome, Edge, Opera). Every parameter
+     at once, what modulates it as it plays, the spectrum, the matrix; user presets kept on the FM-1.
+     Its protocol: app/app.c, "the editor". Its map (names, ranges, value texts): params.json, made by the firmware's
+     host build (app/tests/params.txt). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AEther Editor</title>
+<style>
+:root {
+  --bg: #0d0f12; --panel: #161a1f; --panel2: #1d2228; --line: #2a3038; --text: #e6e9ee; --dim: #8a94a3;
+  --accent: #7fd1c7; --accent2: #e0a95f; --mod: #ff7a9c; --warn: #ffb35c; --bad: #ff6b6b; --ok: #7bd88f;
+}
+:root[data-theme="light"] {
+  --bg: #f3f4f6; --panel: #ffffff; --panel2: #eef0f3; --line: #d6dae0; --text: #1b1f24; --dim: #5c6673;
+  --accent: #127a6e; --accent2: #a8641a; --mod: #c8285a; --warn: #a65c00; --bad: #c02a2a; --ok: #1f7a35;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+header h1 { font-size: 18px; margin: 0; letter-spacing: .04em; }
+header h1 span { color: var(--accent); }
+button, select, input[type=text] { font: inherit; color: var(--text); background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: #062420; border-color: var(--accent); font-weight: 600; }
+.pill { padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+.pill.on { color: var(--text); border-color: var(--accent); }
+.pill.warn { color: var(--warn); border-color: var(--warn); }
+.pill.moving { color: var(--mod); border-color: var(--mod); }
+#status { color: var(--dim); }
+.grow { flex: 1; }
+main { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px; max-width: 1600px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+aside, section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+aside { display: flex; flex-direction: column; gap: 14px; align-self: start; position: sticky; top: 70px;
+  max-height: calc(100vh - 86px); overflow: auto; }
+@media (max-width: 900px) { aside { position: static; max-height: none; } }
+h2 { font-size: 13px; margin: 0 0 8px; letter-spacing: .08em; color: var(--dim); text-transform: uppercase; }
+h3 { font-size: 13px; margin: 0 0 6px; color: var(--accent); letter-spacing: .05em; }
+.content { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.page { background: var(--panel2); border-radius: 8px; padding: 10px; }
+.page.off { opacity: .45; }
+.row { display: grid; grid-template-columns: 82px 1fr 78px; gap: 8px; align-items: center; min-height: 28px; }
+.row label { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .val { font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row .val .live { color: var(--mod); display: block; font-size: 11px; line-height: 1; }
+.slider { position: relative; height: 22px; }
+.slider input { position: absolute; inset: 0; width: 100%; margin: 0; accent-color: var(--accent); }
+.slider .mark { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--mod);
+  border-radius: 2px; pointer-events: none; display: none; }
+.row select { width: 100%; padding: 3px 6px; }
+.kinds { display: flex; flex-wrap: wrap; gap: 4px; }
+.kinds button.sel, .items button.sel { background: var(--accent); color: #062420; border-color: var(--accent); }
+.items { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.items button { padding: 3px 7px; font-size: 12px; }
+.presets { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow: auto; }
+.presets button { text-align: left; border: 0; background: none; padding: 3px 6px; border-radius: 4px;
+  display: flex; justify-content: space-between; gap: 6px; }
+.presets button.sel { background: var(--accent); color: #062420; }
+.presets .k { color: var(--dim); font-size: 11px; }
+.presets button.sel .k { color: inherit; }
+.presets .sep { font-size: 11px; color: var(--dim); margin: 6px 6px 2px; }
+canvas { width: 100%; display: block; background: var(--panel2); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; }
+td, th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; font-size: 12px; }
+th { color: var(--dim); font-weight: 500; }
+td select { width: 100%; }
+td.n { width: 24px; color: var(--dim); }
+td.meter { width: 70px; }
+.meterbar { height: 6px; background: var(--line); border-radius: 3px; position: relative; overflow: hidden; }
+.meterbar i { position: absolute; top: 0; bottom: 0; background: var(--mod); }
+.stat { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); font-size: 12px; }
+.stat b { color: var(--text); font-weight: 600; }
+.store { display: flex; flex-direction: column; gap: 6px; }
+.store .two { display: flex; gap: 6px; }
+.store .two > * { flex: 1; min-width: 0; }
+.note { font-size: 12px; color: var(--dim); }
+.disclaimer { font-size: 12px; color: var(--dim); border-top: 1px solid var(--line); padding: 12px 16px;
+  max-width: 1600px; margin: 0 auto; }
+#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--panel);
+  border: 1px solid var(--accent); padding: 8px 14px; border-radius: 8px; display: none; z-index: 10; }
+.hint { background: var(--panel2); border-left: 3px solid var(--accent2); padding: 8px 10px; border-radius: 6px;
+  font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>Æ</span>ther editor</h1>
+  <select id="port" title="MIDI"></select>
+  <button id="connect" class="primary">Connect</button>
+  <span id="status"></span>
+  <span class="grow"></span>
+  <span id="flags"></span>
+  <span class="stat" id="stat"></span>
+  <button id="lang">PL</button>
+  <button id="theme" title="theme">◐</button>
+</header>
+
+<main>
+  <aside>
+    <div>
+      <h2 data-t="source">Source</h2>
+      <div class="kinds" id="kinds"></div>
+      <div class="items" id="items"></div>
+    </div>
+    <div>
+      <h2 data-t="presets">Presets</h2>
+      <div class="presets" id="presets"></div>
+    </div>
+    <div class="store">
+      <h2 data-t="keep">Keep on the FM-1</h2>
+      <button id="save" data-t="save">Save settings (next power-on)</button>
+      <div class="two">
+        <input type="text" id="uname" maxlength="12" placeholder="NAME" spellcheck="false">
+        <select id="uslot"></select>
+      </div>
+      <button id="ustore" data-t="store">Store as user preset</button>
+      <button id="udelete" data-t="delete">Delete this user preset</button>
+      <div class="note" data-t="storenote">A user preset keeps every parameter and the source; it shows in the
+        PRESETS list on the FM-1 too.</div>
+    </div>
+  </aside>
+
+  <div class="content">
+    <div class="hint" id="hint"></div>
+    <section class="card">
+      <h2 data-t="spectrum">Spectrum and EQ</h2>
+      <canvas id="spec" height="200"></canvas>
+      <div class="note" data-t="specnote">Bars: what plays now (the last frame). Amber line: the EQ as set; pink
+        dashes: the EQ as modulated.</div>
+    </section>
+    <div id="groups" class="content"></div>
+    <section class="card">
+      <h2 data-t="matrix">Modulation matrix</h2>
+      <table id="matrix"></table>
+    </section>
+  </div>
+</main>
+
+<div class="disclaimer" data-t="disclaimer">AI-generated code (Claude, Anthropic): no warranty, use at your own
+  risk. The editor changes the sound on the FM-1 and writes presets into its flash only when you press Save or
+  Store.</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const HDR = [0x7D, 0x41, 0x45];
+
+/* ------------------------------------------------------------------ texts --- */
+const TEXT = {
+  en: {
+    connect: "Connect", disconnect: "Disconnect", source: "Source", presets: "Presets", keep: "Keep on the FM-1",
+    save: "Save settings (next power-on)", store: "Store as user preset", delete: "Delete this user preset",
+    storenote: "A user preset keeps every parameter and the source; it shows in the PRESETS list on the FM-1 too.",
+    spectrum: "Spectrum and EQ", matrix: "Modulation matrix",
+    specnote: "Bars: what plays now (the last frame). Amber line: the EQ as set; pink dashes: the EQ as modulated.",
+    disclaimer: "AI-generated code (Claude, Anthropic): no warranty, use at your own risk. The editor changes the " +
+      "sound on the FM-1 and writes into its flash only when you press Save or Store.",
+    nomidi: "This browser has no Web MIDI: use Chrome, Edge or Opera on a computer.",
+    denied: "MIDI access (with SysEx) was refused: allow it in the address bar's site settings.",
+    noport: "No MIDI device found: connect the FM-1 over USB.",
+    waiting: "asking the FM-1…", noanswer: "No answer: is AEther running on this FM-1 (and nothing else using its MIDI port)?",
+    connected: "connected", offline: "offline preview: nothing is sent",
+    mismatch: (a, b) => `This page knows AEther ${a}, the FM-1 runs ${b}: parameters may not match.`,
+    edited: "EDITED", unsaved: "NOT SAVED", hold: "HOLD", freeze: "FREEZE", moving: "MOVING", static: "STATIC",
+    voices: "voices", cpu: "CPU", shed: "shed",
+    factory: "Factory", user: "User", empty: "(empty)", saved: "Saved on the FM-1.",
+    stored: (n) => `Stored as ${n}.`, deleted: "Deleted.", failed: "The FM-1 could not write its flash.",
+    overwrite: (n) => `Replace user preset ${n}?`, sure: "Delete this user preset from the FM-1?",
+    harmonly: "for the HARM source", nouser: "load a sample with tools/aether_load.py",
+    hint0: "Play the FM-1: every knob here acts at once. Pink marks show where modulation moves a parameter now.",
+    hintstatic: "The sound stands still. Try SEQ → EVOLVE: DEPTH, DRIFT, or a VARIANT: slow motion is AEther's best part.",
+    src: "source", dst: "destination", amt: "amount", now: "now",
+  },
+  pl: {
+    connect: "Połącz", disconnect: "Rozłącz", source: "Źródło", presets: "Presety", keep: "Zachowaj w FM-1",
+    save: "Zapisz ustawienia (na następne włączenie)", store: "Zapisz jako preset użytkownika",
+    delete: "Usuń ten preset użytkownika",
+    storenote: "Preset użytkownika zapamiętuje wszystkie parametry i źródło; widać go też na liście PRESETS w FM-1.",
+    spectrum: "Widmo i EQ", matrix: "Matryca modulacji",
+    specnote: "Słupki: to, co gra teraz (ostatnia ramka). Bursztynowa linia: EQ jak ustawiony; różowa przerywana: EQ z modulacją.",
+    disclaimer: "Kod wygenerowany przez AI (Claude, Anthropic): bez gwarancji, używasz na własną odpowiedzialność. " +
+      "Edytor zmienia brzmienie w FM-1, a do jego pamięci flash zapisuje tylko po wciśnięciu Zapisz.",
+    nomidi: "Ta przeglądarka nie ma Web MIDI: użyj Chrome, Edge albo Opery na komputerze.",
+    denied: "Odmówiono dostępu do MIDI (z SysEx): zezwól w ustawieniach strony przy pasku adresu.",
+    noport: "Nie znaleziono urządzenia MIDI: podłącz FM-1 przez USB.",
+    waiting: "pytam FM-1…", noanswer: "Brak odpowiedzi: czy na FM-1 działa AEther (i nic innego nie używa jego portu MIDI)?",
+    connected: "połączono", offline: "podgląd offline: nic nie jest wysyłane",
+    mismatch: (a, b) => `Ta strona zna AEther ${a}, FM-1 ma ${b}: parametry mogą się nie zgadzać.`,
+    edited: "ZMIENIONY", unsaved: "NIEZAPISANY", hold: "HOLD", freeze: "FREEZE", moving: "RUCH", static: "STATYCZNY",
+    voices: "głosy", cpu: "CPU", shed: "odciążenie",
+    factory: "Fabryczne", user: "Użytkownika", empty: "(pusty)", saved: "Zapisano w FM-1.",
+    stored: (n) => `Zapisano jako ${n}.`, deleted: "Usunięto.", failed: "FM-1 nie zdołał zapisać pamięci flash.",
+    overwrite: (n) => `Zastąpić preset użytkownika ${n}?`, sure: "Usunąć ten preset użytkownika z FM-1?",
+    harmonly: "dla źródła HARM", nouser: "wgraj sampel przez tools/aether_load.py",
+    hint0: "Graj na FM-1: każde pokrętło tutaj działa od razu. Różowe znaczniki pokazują, gdzie modulacja przesuwa teraz parametr.",
+    hintstatic: "Brzmienie stoi w miejscu. Spróbuj SEQ → EVOLVE: DEPTH, DRIFT albo VARIANT: powolny ruch to najlepsza strona AEthera.",
+    src: "źródło", dst: "cel", amt: "ilość", now: "teraz",
+  },
+};
+let lang = (navigator.language || "").toLowerCase().startsWith("pl") ? "pl" : "en";
+try { if (localStorage.getItem("aether.lang")) lang = localStorage.getItem("aether.lang"); } catch (e) {}
+const t = (k, ...a) => { const v = TEXT[lang][k]; return typeof v === "function" ? v(...a) : v; };
+function texts() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t(e.dataset.t); });
+  $("lang").textContent = lang === "pl" ? "EN" : "PL";
+  $("connect").textContent = out ? t("disconnect") : t("connect");
+}
+$("lang").addEventListener("click", () => {
+  lang = lang === "pl" ? "en" : "pl";
+  try { localStorage.setItem("aether.lang", lang); } catch (e) {}
+  texts(); renderAll();
+});
+$("theme").addEventListener("click", () => {
+  const r = document.documentElement;
+  const dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  r.dataset.theme = dark ? "light" : "dark";
+});
+let toastT = 0;
+function toast(s) {
+  const e = $("toast"); e.textContent = s; e.style.display = "block";
+  clearTimeout(toastT); toastT = setTimeout(() => { e.style.display = "none"; }, 2600);
+}
+const say = (s) => { $("status").textContent = s; };
+
+/* ------------------------------------------------------------- the state --- */
+let M = null;                            /* params.json */
+let S = null;                            /* the FM-1's: {version, slot, preset, octave, flags, v[], name, nuser, npreset} */
+let MON = null;                          /* the last monitor frame */
+let USERS = [];                          /* [{used, name}] */
+let midi = null, out = null, inp = null;
+let hash = -1, offline = true;
+const lastPick = {};                     /* each kind's last item, as on the FM-1 */
+
+/* ------------------------------------------------------------------ MIDI --- */
+const waiters = [];
+function send(bytes) {
+  if (!out) return;
+  try { out.send([0xF0, ...HDR, ...bytes.map((b) => b & 0x7F), 0xF7]); } catch (e) { say(e.message); }
+}
+function ask(cmd, args, answer, ms = 800) {
+  return new Promise((res) => {
+    const w = { answer, res, tm: setTimeout(() => { waiters.splice(waiters.indexOf(w), 1); res(null); }, ms) };
+    waiters.push(w);
+    send([cmd, ...(args || [])]);
+  });
+}
+function onMidi(ev) {
+  const d = ev.data;
+  if (d.length < 6 || d[0] !== 0xF0 || d[1] !== HDR[0] || d[2] !== HDR[1] || d[3] !== HDR[2]) return;
+  const cmd = d[4], body = d.slice(5, d.length - 1);
+  const i = waiters.findIndex((w) => w.answer === cmd);
+  if (i >= 0) { const w = waiters.splice(i, 1)[0]; clearTimeout(w.tm); w.res(body); }
+}
+
+function listPorts() {
+  const sel = $("port"); sel.innerHTML = "";
+  if (!midi) return;
+  const outs = [...midi.outputs.values()];
+  for (const o of outs) {
+    const op = document.createElement("option"); op.value = o.id; op.textContent = o.name; sel.appendChild(op);
+  }
+  const fm = outs.find((o) => /fm-?1|m-?vave|aether/i.test(o.name));
+  if (fm) sel.value = fm.id;
+}
+
+async function connect() {
+  if (out) { disconnect(); return; }
+  if (!navigator.requestMIDIAccess) { say(t("nomidi")); return; }
+  if (!midi) {
+    try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
+    catch (e) { say(t("denied")); return; }
+    midi.onstatechange = () => { if (!out) listPorts(); };
+    listPorts();
+  }
+  const o = midi.outputs.get($("port").value) || [...midi.outputs.values()][0];
+  if (!o) { say(t("noport")); return; }
+  const ins = [...midi.inputs.values()];
+  const i = ins.find((x) => x.name === o.name) || ins.find((x) => /fm-?1|m-?vave/i.test(x.name)) || ins[0];
+  if (!i) { say(t("noport")); return; }
+  out = o; inp = i; inp.onmidimessage = onMidi;
+  say(t("waiting"));
+  const st = await ask(0x10, [], 0x11, 1500);
+  if (!st) { say(t("noanswer")); inp.onmidimessage = null; out = inp = null; return; }
+  offline = false;
+  takeState(st);
+  await fetchUsers();
+  say(`${t("connected")}: ${o.name}, AEther ${S.version}`);
+  if (M && S.np !== M.np) toast(t("mismatch", M.version, S.version));
+  texts(); renderAll();
+  poll();
+}
+function disconnect() {
+  if (inp) inp.onmidimessage = null;
+  out = inp = null; offline = true; MON = null; hash = -1;
+  say(t("offline")); texts(); renderLive();
+}
+$("connect").addEventListener("click", connect);
+
+function takeState(b) {
+  let k = 0;
+  const str = (n) => { let s = ""; for (let j = 0; j < n; j++) { const c = b[k++]; if (c) s += String.fromCharCode(c); } return s; };
+  const version = str(8);
+  const np = b[k++], slot = b[k++], preset = b[k++], octave = b[k++] - 2, flags = b[k++];
+  const v = Array.from(b.slice(k, k + np)); k += np;
+  const name = str(12);
+  const nuser = b[k++], npreset = b[k++];
+  S = { version, np, slot, preset, octave, flags, v, name, nuser, npreset };
+  if (M) lastPick[M.slots[slot].kind] = slot;
+}
+async function fetchUsers() {
+  const b = await ask(0x1A, [], 0x1B);
+  if (!b) return;
+  USERS = [];
+  for (let k = 0; k + 13 <= b.length; k += 13) {
+    let s = ""; for (let j = 1; j < 13; j++) if (b[k + j]) s += String.fromCharCode(b[k + j]);
+    USERS.push({ used: !!b[k], name: s });
+  }
+}
+
+/* the monitor, ten times a second; the state again when the FM-1's own knobs changed something */
+let polling = false;
+async function poll() {
+  if (polling) return;
+  polling = true;
+  while (out) {
+    const t0 = performance.now();
+    const b = await ask(0x16, [], 0x17, 600);
+    if (!out) break;
+    if (b) {
+      const np = S.np, nms = M ? M.sources.length : 11, nb = M ? M.disp.bands : 60;
+      let k = 0;
+      const h = b[k] | b[k + 1] << 7; k += 2;
+      const m = { voices: b[k++], cpu: b[k++], shed: b[k++], page: b[k++], flags: b[k++] };
+      m.mod = Array.from(b.slice(k, k + np)); k += np;
+      m.src = Array.from(b.slice(k, k + nms), (x) => (x - 64) / 63); k += nms;
+      m.spec = Array.from(b.slice(k, k + nb)); k += nb;
+      m.lfo = Array.from(b.slice(k, k + 3), (x) => x / 127);
+      MON = m;
+      if (h !== hash) {
+        hash = h;
+        if (!pending.size) {
+          const st = await ask(0x10, [], 0x11);
+          if (st) { takeState(st); renderValues(); }
+        }
+      }
+      renderLive();
+    }
+    await new Promise((r) => setTimeout(r, Math.max(0, 100 - (performance.now() - t0))));
+  }
+  polling = false;
+}
+
+/* a parameter: sent at once, the latest value only while it is being dragged */
+const pending = new Map();
+let flushT = 0;
+function setParam(p, v) {
+  if (!S) return;
+  S.v[p] = v;
+  S.flags |= 3;
+  if (offline) { renderValues(); return; }
+  pending.set(p, v);
+  if (!flushT) flushT = setTimeout(flush, 15);
+}
+function flush() {
+  flushT = 0;
+  for (const [p, v] of pending) send([0x12, p, v]);
+  pending.clear();
+}
+
+/* --------------------------------------------------------------- drawing --- */
+const P = (i) => M.params[i];
+const kindOf = (slot) => M.slots[slot].kind;
+const kindName = () => M.kinds[kindOf(S.slot)];
+let rows = [];                           /* {p, input, val, live, mark} */
+
+function paramRow(p, labelOverride) {
+  const d = P(p);
+  const row = document.createElement("div"); row.className = "row";
+  const lab = document.createElement("label"); lab.textContent = labelOverride || d.name; lab.title = d.name;
+  const val = document.createElement("div"); val.className = "val";
+  const vt = document.createElement("span"); const live = document.createElement("span"); live.className = "live";
+  val.append(vt, live);
+  let input, mark = null;
+  const words = d.max <= 40 && !/^[-+]?\d/.test(d.text[Math.min(1, d.max)]);
+  if (words) {
+    input = document.createElement("select");
+    d.text.forEach((s, i) => { const o = document.createElement("option"); o.value = i; o.textContent = s; input.appendChild(o); });
+    input.addEventListener("change", () => setParam(p, +input.value));
+    row.append(lab, input, val);
+  } else {
+    const box = document.createElement("div"); box.className = "slider";
+    input = document.createElement("input"); input.type = "range"; input.min = 0; input.max = d.max; input.step = 1;
+    input.addEventListener("input", () => { setParam(p, +input.value); vt.textContent = d.text[+input.value]; });
+    input.addEventListener("dblclick", () => { input.value = d.def; setParam(p, d.def); renderValues(); });
+    input.title = d.name;
+    mark = document.createElement("i"); mark.className = "mark";
+    box.append(input, mark);
+    row.append(lab, box, val);
+  }
+  rows.push({ p, input, vt, live, mark, max: d.max, words });
+  return row;
+}
+
+function renderAll() {
+  if (!M || !S) return;
+  rows = [];
+  renderSource();
+  renderPresets();
+  renderGroups();
+  renderMatrix();
+  renderValues();
+  renderLive();
+}
+
+function renderSource() {
+  const kinds = $("kinds"); kinds.innerHTML = "";
+  const cur = kindOf(S.slot);
+  M.kinds.forEach((name, k) => {
+    const b = document.createElement("button"); b.textContent = name; if (k === cur) b.className = "sel";
+    b.addEventListener("click", () => {
+      const first = M.slots.findIndex((s, i) => s.kind === k && !(s.user && !userSampleOk()));
+      pickSlot(lastPick[k] !== undefined ? lastPick[k] : first);
+    });
+    kinds.appendChild(b);
+  });
+  const items = $("items"); items.innerHTML = "";
+  const list = M.slots.map((s, i) => ({ ...s, i })).filter((s) => s.kind === cur);
+  if (list.length > 1) for (const s of list) {
+    const b = document.createElement("button"); b.textContent = s.name; if (s.i === S.slot) b.className = "sel";
+    if (s.user) b.title = t("nouser");
+    b.addEventListener("click", () => pickSlot(s.i));
+    items.appendChild(b);
+  }
+}
+const userSampleOk = () => true;         /* (the FM-1 ignores USER when no sample is loaded) */
+async function pickSlot(i) {
+  if (i < 0) return;
+  lastPick[kindOf(i)] = i;
+  S.slot = i;
+  if (!offline) {
+    flush();
+    send([0x13, i]);
+    const st = await ask(0x10, [], 0x11);
+    if (st) takeState(st);
+  }
+  renderAll();
+}
+
+function renderPresets() {
+  const box = $("presets"); box.innerHTML = "";
+  const sep = (s) => { const d = document.createElement("div"); d.className = "sep"; d.textContent = s; box.appendChild(d); };
+  const btn = (i, name, kind) => {
+    const b = document.createElement("button"); if (S.preset === i) b.className = "sel";
+    const a = document.createElement("span"); a.textContent = `${i < M.presets.length ? i + 1 : "U" + (i - M.presets.length + 1)}  ${name}`;
+    const k = document.createElement("span"); k.className = "k"; k.textContent = kind;
+    b.append(a, k);
+    b.addEventListener("click", () => loadPreset(i));
+    box.appendChild(b);
+  };
+  sep(t("factory"));
+  M.presets.forEach((p, i) => btn(i, p.name, M.slots[p.slot].name));
+  if (USERS.some((u) => u.used)) {
+    sep(t("user"));
+    USERS.forEach((u, k) => { if (u.used) btn(M.presets.length + k, u.name || "USER " + (k + 1), ""); });
+  }
+  const sel = $("uslot"); const keep = sel.value; sel.innerHTML = "";
+  for (let k = 0; k < (S.nuser || M.nuser); k++) {
+    const u = USERS[k] || { used: false, name: "" };
+    const o = document.createElement("option"); o.value = k;
+    o.textContent = `U${k + 1} ${u.used ? u.name : t("empty")}`; sel.appendChild(o);
+  }
+  const curU = S.preset - M.presets.length;
+  sel.value = keep !== "" ? keep : String(curU >= 0 ? curU : Math.max(0, USERS.findIndex((u) => !u.used)));
+  $("udelete").disabled = offline || !(curU >= 0 && USERS[curU] && USERS[curU].used);
+  $("ustore").disabled = $("save").disabled = offline;
+}
+async function loadPreset(i) {
+  if (offline) {                         /* the preview: the factory list only names them */
+    S.preset = i; renderPresets(); return;
+  }
+  flush();
+  send([0x14, i]);
+  const st = await ask(0x10, [], 0x11);
+  if (st) takeState(st);
+  renderAll();
+}
+
+function renderGroups() {
+  const root = $("groups"); root.innerHTML = "";
+  const harm = kindName() === "HARM";
+  for (const g of M.groups) {
+    const card = document.createElement("section"); card.className = "card";
+    const h = document.createElement("h2"); h.textContent = g.button; card.appendChild(h);
+    const grid = document.createElement("div"); grid.className = "grid";
+    for (const pg of g.pages) {
+      if (pg.name === "MATRIX") continue;          /* (the table below) */
+      const ps = Array.isArray(pg.params) ? pg.params : pg.params[kindName()];
+      const div = document.createElement("div"); div.className = "page" + (pg.harm_only && !harm ? " off" : "");
+      const h3 = document.createElement("h3");
+      h3.textContent = pg.name === "SOURCE" ? `SOURCE · ${kindName()}` : pg.name;
+      if (pg.harm_only && !harm) h3.textContent += ` (${t("harmonly")})`;
+      div.appendChild(h3);
+      for (const p of ps) if (p >= 0) div.appendChild(paramRow(p));
+      grid.appendChild(div);
+    }
+    card.appendChild(grid);
+    root.appendChild(card);
+  }
+}
+
+function renderMatrix() {
+  const tb = $("matrix"); tb.innerHTML = "";
+  const hd = document.createElement("tr");
+  for (const s of ["#", t("src"), t("now"), t("dst"), t("amt")]) { const th = document.createElement("th"); th.textContent = s; hd.appendChild(th); }
+  tb.appendChild(hd);
+  for (let i = 0; i < M.ids.NMX; i++) {
+    const base = M.ids.P_MX0 + 3 * i;
+    const tr = document.createElement("tr");
+    const n = document.createElement("td"); n.className = "n"; n.textContent = i + 1;
+    const cells = [0, 1, 2].map((j) => {
+      const r = paramRow(base + j, " ");
+      const td = document.createElement("td");
+      td.appendChild(j === 2 ? r : r.children[1]);
+      if (j === 2) { r.style.gridTemplateColumns = "1fr 70px"; r.removeChild(r.children[0]); }
+      return td;
+    });
+    const meter = document.createElement("td"); meter.className = "meter";
+    meter.innerHTML = '<div class="meterbar"><i></i></div>';
+    meter.dataset.slot = i;
+    tr.append(n, cells[0], meter, cells[1], cells[2]);
+    tb.appendChild(tr);
+  }
+}
+
+function renderValues() {
+  if (!S) return;
+  for (const r of rows) {
+    const v = S.v[r.p];
+    if (v === undefined) continue;
+    if (document.activeElement !== r.input || r.words) r.input.value = v;
+    r.vt.textContent = r.words ? "" : P(r.p).text[v] || v;
+  }
+  renderFlags();
+  drawSpec();
+}
+
+function renderFlags() {
+  const f = MON ? MON.flags : S ? S.flags : 0;
+  const pills = [["edited", 1], ["unsaved", 2], ["hold", 4], ["freeze", 8]];
+  const box = $("flags"); box.innerHTML = "";
+  for (const [k, bit] of pills) {
+    const s = document.createElement("span"); s.className = "pill" + (f & bit ? (bit === 2 ? " warn" : " on") : "");
+    s.textContent = t(k); if (f & bit) box.appendChild(s);
+  }
+  const mv = document.createElement("span"); mv.className = "pill" + (f & 16 ? " moving" : "");
+  mv.textContent = f & 16 ? t("moving") : t("static"); box.appendChild(mv);
+  $("hint").textContent = f & 16 || !S ? t("hint0") : t("hintstatic");
+}
+
+function renderLive() {
+  if (!M) return;
+  const stat = $("stat");
+  stat.innerHTML = MON ? `<span>${t("voices")} <b>${MON.voices}</b></span><span>${t("cpu")} <b>${MON.cpu}%</b></span>` +
+    (MON.shed ? `<span>${t("shed")} <b>${MON.shed}</b></span>` : "") : "";
+  for (const r of rows) {
+    const m = MON ? MON.mod[r.p] : undefined;
+    const v = S ? S.v[r.p] : 0;
+    const moved = m !== undefined && Math.abs(m - v) >= 1 && !r.words;
+    if (r.mark) {
+      r.mark.style.display = moved ? "block" : "none";
+      if (moved) r.mark.style.left = `calc(${(m / r.max) * 100}% + ${8 - (m / r.max) * 16}px)`;
+    }
+    r.live.textContent = moved ? P(r.p).text[m] : "";
+  }
+  document.querySelectorAll("td.meter").forEach((td) => {
+    const i = +td.dataset.slot, src = S ? S.v[M.ids.P_MX0 + 3 * i] : 0;
+    const x = MON && src ? MON.src[src] : 0;
+    const bar = td.querySelector("i");
+    bar.style.left = `${50 + Math.min(0, x) * 50}%`; bar.style.width = `${Math.abs(x) * 50}%`;
+  });
+  renderFlags();
+  drawSpec();
+}
+
+/* the EQ, as the engine's aet_eq_db (app/dsp/aether.c) */
+function eqDb(v, hz) {
+  let db = 0;
+  for (let b = 0; b < M.ids.NEQ; b++) {
+    const base = M.ids.P_EQ0 + 4 * b, type = v[base + 3];
+    if (!type) continue;
+    const f0 = M.eq.hz[Math.round(v[base])], g = M.eq.db[Math.round(v[base + 1])], w = Math.max(M.eq.oct[Math.round(v[base + 2])], 0.05);
+    const x = hz / f0, d = Math.log2(x);
+    if (type === 1) { const u = d / (0.5 * w); db += g * Math.pow(2, -u * u); }
+    else if (type === 2) db += g * (0.5 - 0.5 * Math.tanh(2 * d / w));
+    else if (type === 3) db += g * (0.5 + 0.5 * Math.tanh(2 * d / w));
+    else { const x2 = x * x, den = (1 - x2) * (1 - x2) + 2 * x2, gg = type === 4 ? x2 * x2 / den : 1 / den;
+      db += Math.max(3.0103 * Math.log2(Math.max(gg, 1e-12)), -72); }
+  }
+  return db;
+}
+function drawSpec() {
+  const c = $("spec"), dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = 200;
+  if (!M || !W) return;
+  if (c.width !== Math.round(W * dpr)) { c.width = Math.round(W * dpr); c.height = H * dpr; }
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim();
+  const lo = 20, hi = 20480, xOf = (hz) => (Math.log2(hz / lo) / Math.log2(hi / lo)) * W;
+  g.strokeStyle = col("--line"); g.fillStyle = col("--dim"); g.font = "11px system-ui"; g.lineWidth = 1;
+  for (const hz of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) {
+    const x = Math.round(xOf(hz)) + 0.5; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+    g.fillText(hz >= 1000 ? hz / 1000 + "k" : String(hz), x + 3, H - 4);
+  }
+  if (MON) {                             /* the bands: 40 Hz up, 60 of them over 8.64 octaves */
+    const n = M.disp.bands, oct = M.disp.octaves;
+    g.fillStyle = col("--accent"); g.globalAlpha = 0.75;
+    for (let k = 0; k < n; k++) {
+      const f0 = M.disp.lo_hz * Math.pow(2, (k * oct) / n), f1 = M.disp.lo_hz * Math.pow(2, ((k + 1) * oct) / n);
+      const h = (MON.spec[k] / 127) * (H - 20);
+      g.fillRect(xOf(f0) + 1, H - 16 - h, Math.max(1, xOf(f1) - xOf(f0) - 2), h);
+    }
+    g.globalAlpha = 1;
+  }
+  const eqLine = (v, color, dash) => {     /* +-18 dB over the middle */
+    if (!v) return;
+    g.strokeStyle = color; g.lineWidth = 2; g.setLineDash(dash); g.beginPath();
+    for (let x = 0; x <= W; x += 2) {
+      const hz = lo * Math.pow(2, (x / W) * Math.log2(hi / lo)), db = Math.max(-24, Math.min(24, eqDb(v, hz)));
+      const y = (H - 16) / 2 - (db / 24) * ((H - 16) / 2 - 6);
+      x ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke(); g.setLineDash([]);
+  };
+  if (S) {
+    g.strokeStyle = col("--line"); g.beginPath(); g.moveTo(0, (H - 16) / 2); g.lineTo(W, (H - 16) / 2); g.stroke();
+    eqLine(S.v, col("--accent2"), []);
+    if (MON) eqLine(MON.mod, col("--mod"), [5, 4]);
+  }
+}
+window.addEventListener("resize", drawSpec);
+
+/* --------------------------------------------------------- keep / delete --- */
+$("save").addEventListener("click", async () => {
+  flush();
+  const b = await ask(0x15, [], 0x19, 3000);
+  toast(b && b[0] === 0 ? t("saved") : t("failed"));
+});
+$("ustore").addEventListener("click", async () => {
+  const k = +$("uslot").value, name = ($("uname").value || "USER " + (k + 1)).toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 12);
+  if (USERS[k] && USERS[k].used && !confirm(t("overwrite", `U${k + 1} ${USERS[k].name}`))) return;
+  flush();
+  const b = await ask(0x18, [k, ...[...name].map((c) => c.charCodeAt(0))], 0x19, 3000);
+  if (b && b[0] === 0) { toast(t("stored", name)); await fetchUsers(); const st = await ask(0x10, [], 0x11); if (st) takeState(st); }
+  else toast(t("failed"));
+  renderAll();
+});
+$("udelete").addEventListener("click", async () => {
+  const k = S.preset - M.presets.length;
+  if (k < 0 || !confirm(t("sure"))) return;
+  const b = await ask(0x1C, [k], 0x19, 3000);
+  if (b && b[0] === 0) { toast(t("deleted")); await fetchUsers(); const st = await ask(0x10, [], 0x11); if (st) takeState(st); }
+  else toast(t("failed"));
+  renderAll();
+});
+
+/* ---------------------------------------------------------------- start --- */
+(async () => {
+  texts();
+  try {
+    M = await (await fetch("params.json")).json();
+  } catch (e) { say("params.json: " + e.message); return; }
+  /* until the FM-1 answers: its defaults, to look around */
+  S = { version: M.version, np: M.np, slot: M.presets[0].slot, preset: 0, octave: 0, flags: 0,
+    v: M.params.map((p) => p.def), name: M.presets[0].name, nuser: M.nuser, npreset: M.presets.length };
+  say(navigator.requestMIDIAccess ? t("offline") : t("nomidi"));
+  renderAll();
+  if (navigator.requestMIDIAccess && navigator.permissions) {
+    try {                                /* already allowed: the ports at once */
+      const q = await navigator.permissions.query({ name: "midi", sysex: true });
+      if (q.state === "granted") { midi = await navigator.requestMIDIAccess({ sysex: true }); listPorts(); }
+    } catch (e) {}
+  }
+})();
+</script>
+</body>
+</html>

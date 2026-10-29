@@ -811,24 +811,93 @@ void app_panic(void)
 }
 
 /* --------------------------------------------------------------- settings --- */
+/* the user presets: 16 sounds kept in the flash (OBJ_USER), stored from the web editor (web/editor), after the
+ * factory ones in PRESETS' list (preset numbers NPRESET + k); a bank made by another release keeps the parameters
+ * both know (the numbers only grow) and takes the defaults for the rest */
+#define NUSER 16u
+#define USER_MAGIC 0x31425541u           /* "AUB1" */
+typedef struct {
+    char name[12];
+    uint8_t slot, used, rsv[2];
+    uint8_t v[NP];
+} upreset_t;
+static struct {
+    uint32_t magic;
+    uint16_t np, n;
+    upreset_t p[NUSER];
+} ubank;
+_Static_assert(sizeof ubank <= PLAT_STORE_MAX, "the user presets fit one store object");
+
+static void user_init(void)              /* at power-on: the bank, or an empty one */
+{
+    uint32_t k;
+    if (plat_store_load(OBJ_USER, &ubank, sizeof ubank) < 8 || ubank.magic != USER_MAGIC || ubank.n != NUSER) {
+        uint8_t *b = (uint8_t *)&ubank;
+        for (k = 0; k < sizeof ubank; k++)
+            b[k] = 0;
+        ubank.magic = USER_MAGIC;
+        ubank.np = NP;
+        ubank.n = NUSER;
+    }
+}
+
+static int user_used(uint32_t k) { return k < NUSER && ubank.p[k].used == 1u && ubank.p[k].slot < NSLOT; }
+
+static const char *preset_name(uint32_t i)   /* a factory preset's name, or a user preset's (12 characters at most) */
+{
+    static char t[13];
+    uint32_t k;
+    if (i < NPRESET)
+        return PRESETS[i].name;
+    for (k = 0; k < 12u && ubank.p[(i - NPRESET) % NUSER].name[k]; k++)
+        t[k] = ubank.p[(i - NPRESET) % NUSER].name[k];
+    t[k] = 0;
+    return k ? t : "USER";
+}
+
 static void preset_load(uint32_t i)
 {
     uint32_t k;
-    const preset_t *p = &PRESETS[i % NPRESET];
     uint8_t core2 = set.v[P_CORE2];      /* (SETUP's choices are not a preset's) */
     for (k = 0; k < NP; k++)
         set.v[k] = PDEFAULT[k];
-    for (k = 0; k < NPOV && p->ov[k][0]; k++)
-        set.v[p->ov[k][0] - 1u] = p->ov[k][1];
-    set.v[P_CORE2] = core2;
-    set.preset = (uint8_t)(i % NPRESET);
-    set.slot = p->slot;
+    if (i >= NPRESET && user_used(i - NPRESET)) {   /* a user preset: what it holds over the defaults */
+        const upreset_t *u = &ubank.p[i - NPRESET];
+        uint32_t n = ubank.np < NP ? ubank.np : NP;
+        for (k = 0; k < n; k++)
+            set.v[k] = u->v[k] <= PDEF[k].max ? u->v[k] : PDEFAULT[k];
+        set.v[P_CORE2] = core2;
+        set.preset = (uint8_t)i;
+        set.slot = u->slot;
+        return;
+    }
+    i %= NPRESET;
+    {
+        const preset_t *p = &PRESETS[i];
+        for (k = 0; k < NPOV && p->ov[k][0]; k++)
+            set.v[p->ov[k][0] - 1u] = p->ov[k][1];
+        set.v[P_CORE2] = core2;
+        set.preset = (uint8_t)i;
+        set.slot = p->slot;
+    }
+}
+
+/* PRESETS turned: the factory presets, then the user presets that hold something, round */
+static uint32_t preset_next(uint32_t i, int32_t e)
+{
+    uint32_t n = NPRESET + NUSER, k;
+    for (k = 0; k < (uint32_t)(e < 0 ? -e : e); k++)
+        do
+            i = (i + (e > 0 ? 1u : n - 1u)) % n;
+        while (i >= NPRESET && !user_used(i - NPRESET));
+    return i;
 }
 
 static int settings_ok(void)
 {
     uint32_t k;
-    if (set.magic != SET_MAGIC || set.slot >= NSLOT || set.octave < -2 || set.octave > 2 || set.preset >= NPRESET)
+    if (set.magic != SET_MAGIC || set.slot >= NSLOT || set.octave < -2 || set.octave > 2 ||
+        (set.preset >= NPRESET && !user_used(set.preset - NPRESET)))
         return 0;
     for (k = 0; k < NP; k++)
         if (set.v[k] > PDEF[k].max)
@@ -859,6 +928,7 @@ static const char *core2_state_text(void) { return set.v[P_CORE2] ? "NOT IN THE 
 
 void app_init(void)
 {
+    user_init();
     if (plat_store_load(OBJ_SETTINGS, &set, sizeof set) != (int)sizeof set || !settings_ok()) {
         set.magic = SET_MAGIC;
         set.octave = 0;
@@ -1009,11 +1079,15 @@ static uint32_t up_end(const uint8_t *p, uint32_t n)
     return 0;
 }
 
+static int editor_frame(const uint8_t *p, uint32_t n);
+
 int app_sysex(const uint8_t *p, uint32_t n)
 {
     uint32_t st;
     if (n < 4u || p[0] != 0x7Du || p[1] != 0x41u || p[2] != 0x45u)
         return 0;
+    if (p[3] >= 0x10u && p[3] < 0x30u)   /* the web editor's (below) */
+        return editor_frame(p, n);
     switch (p[3]) {
     case 1: st = up_begin(p, n); break;
     case 2: st = up_data(p, n); break;
@@ -1042,8 +1116,8 @@ static struct {
     uint32_t used;                       /* buttons held that did something else (a modifier): no press on release */
     uint8_t help;                        /* HOME held: the buttons' map on the screen */
     uint32_t preset_warn;                /* PRESETS turned with unsaved changes: until when a turn loads */
-    uint8_t last_sample, last_live;
-    uint32_t lit_nav;                    /* the page buttons lit (EDIT ENV LFO SEQ FX GLO HOME SEL) */      /* SELECT's choice in SAMPLE and in LIVE, for ALGORITHM to come back to */
+    uint8_t last_sample, last_live;      /* SELECT's choice in SAMPLE and in LIVE, for ALGORITHM to come back to */
+    uint32_t lit_nav;                    /* the page buttons lit (EDIT ENV LFO SEQ FX GLO HOME SEL) */
 } ui;
 static void ui_dirty_params(void) { ui.redraw = 1; }
 
@@ -1427,7 +1501,7 @@ static void speak(void)                  /* a screen reader that has just starte
         text_cat(t, " ");
         text_cat(t, slot_item(set.slot));
         text_cat(t, ". ");
-        text_cat(t, PRESETS[set.preset].name);
+        text_cat(t, preset_name(set.preset));
         text_cat(t, ". ");
         text_cat(t, PAGE_NAME[ui.page]);
         for (k = 0; k < 4u && pp[k] != P_NONE; k++) {
@@ -1488,15 +1562,20 @@ static void motion_make(uint32_t n)
     static const uint8_t SHAPES[4] = {LFO_SINE, LFO_TRI, LFO_DRIFT, LFO_DRIFT};
     static const uint8_t RATE_LO[NLFO] = {2, 5, 20}, RATE_N[NLFO] = {18, 21, 21};   /* ~90..32 s, 76..25 s, 33..11 s */
     static const uint8_t SRC[4] = {MS_LFO1, MS_LFO2, MS_ENV1, MS_LFO3};
-    const preset_t *pr = &PRESETS[set.preset % NPRESET];
+    const preset_t *pr = &PRESETS[set.preset < NPRESET ? set.preset : 0u];
     const motion_route_t *rt = MOTION_ROUTES[drift_kind()];
     uint32_t k, r = (n + 1u) * 0x9E3779B9u ^ (uint32_t)set.slot * 0x85EBCA6Bu, used = 0;
     for (k = P_LFO0; k < P_MSLOT; k++)
         set.v[k] = PDEFAULT[k];
-    for (k = 0; k < NPOV && pr->ov[k][0]; k++) {
-        uint32_t q = pr->ov[k][0] - 1u;
-        if (q >= P_LFO0 && q < P_MSLOT)
-            set.v[q] = pr->ov[k][1];
+    if (set.preset >= NPRESET && user_used(set.preset - NPRESET)) {   /* a user preset's own */
+        for (k = P_LFO0; k < P_MSLOT && k < ubank.np; k++)
+            set.v[k] = ubank.p[set.preset - NPRESET].v[k];
+    } else {
+        for (k = 0; k < NPOV && pr->ov[k][0]; k++) {
+            uint32_t q = pr->ov[k][0] - 1u;
+            if (q >= P_LFO0 && q < P_MSLOT)
+                set.v[q] = pr->ov[k][1];
+        }
     }
     if (n == 0u)
         return;
@@ -1909,7 +1988,7 @@ static void input(void)
             app_say("NOT SAVED", "TURN AGAIN TO LOAD");
             ui.preset_warn = now + 4000u;
         } else {
-            preset_load((uint32_t)((int32_t)set.preset + (int32_t)NPRESET * 4 + e));
+            preset_load(preset_next(set.preset, e));
             slot_remember(set.slot);
             set_dirty = 1;
             edited = 0;
@@ -1918,7 +1997,7 @@ static void input(void)
                 page_set(PG_SOURCE);
             apply();
             ev_push(Q_SOURCE, set.slot, 0);
-            app_say("PRESET", PRESETS[set.preset].name);
+            app_say("PRESET", preset_name(set.preset));
         }
     }
     {
@@ -2000,7 +2079,7 @@ static void draw_header(void)
         int32_t x = cv_text(8, 6, &FONT_B, KIND_NAME[kind_of(set.slot)], C_WHITE);   /* ALGORITHM */
         if (slot_item(set.slot)[0])                                                     /* SELECT */
             x = cv_text(x + 8, 6, &FONT_B, slot_item(set.slot), C_HI);
-        x = cv_text(x + 10, 10, &FONT_XS, PRESETS[set.preset].name, C_GRAY);
+        x = cv_text(x + 10, 10, &FONT_XS, preset_name(set.preset), C_GRAY);
         if (edited)                      /* changed since chosen (or saved) */
             cv_text(x + 2, 10, &FONT_XS, "*", C_GRAY);
         if (hold)
@@ -2426,6 +2505,230 @@ void app_ui_init(void)
     ui.touched = 0xFF;
 }
 
+/* ------------------------------------------------------------- the editor --- */
+/* The web editor (web/editor: Chrome or Edge, Web MIDI) over USB-MIDI SysEx, F0 7D 41 45 CMD ... F7, every byte
+ * 7-bit; it answers F0 7D 41 45 CMD+1 ... F7. Main loop.
+ *   10                     -> 11 VERSION[8] NP SLOT PRESET OCTAVE+2 FLAGS V[NP] NAME[12] NUSER NPRESET
+ *   12 P V                 a parameter, as a knob would set it (VARIANT makes its motion); no answer
+ *   13 SLOT                the source
+ *   14 PRESET              a preset (factory 0.., user NPRESET + k)
+ *   15                     -> 19 STATUS: SAVE (the settings kept for the next power-on)
+ *   16                     -> 17 HASH(2) VOICES CPU SHED PAGE FLAGS MOD[NP] SRC[NMS] SPECTRUM[AET_DISP] LFO-PHASE[NLFO]
+ *                             HASH: of the settings (the editor asks 10 again when it changes: a knob turned on the
+ *                             FM-1); MOD: each parameter as it plays (its modulation in); SRC: the matrix's sources,
+ *                             64 + 63 x value; SPECTRUM: the last frame's, 0 .. 127 = -96 .. 0 dB
+ *   18 K NAME[12]          -> 19 STATUS: the current sound kept as user preset K (and chosen)
+ *   1A                     -> 1B (USED NAME[12]) x NUSER
+ *   1C K                   -> 19 STATUS: user preset K deleted
+ * FLAGS: bit 0 changed since chosen, 1 not saved, 2 HOLD, 3 FREEZE, 4 something moves it. STATUS 0 = done. */
+static uint8_t ed_tx[320];
+#ifdef PLAT_HOST
+static uint8_t ed_last[320];             /* the simulator's checks: the last answer */
+static uint32_t ed_last_n;
+#endif
+
+static void ed_send(uint32_t n)
+{
+    ed_tx[0] = 0xF0;
+    ed_tx[1] = 0x7D;
+    ed_tx[2] = 0x41;
+    ed_tx[3] = 0x45;
+    ed_tx[n++] = 0xF7;
+    plat_sysex_send(ed_tx, n);
+#ifdef PLAT_HOST
+    for (ed_last_n = 0; ed_last_n < n; ed_last_n++)
+        ed_last[ed_last_n] = ed_tx[ed_last_n];
+#endif
+}
+
+static uint32_t ed_flags(void)
+{
+    return (uint32_t)(edited != 0) | (uint32_t)(set_dirty != 0) << 1 | (uint32_t)(hold != 0) << 2 |
+           (uint32_t)(freeze != 0) << 3 | (uint32_t)(motion_on() != 0) << 4;
+}
+
+static uint32_t ed_hash(void)            /* of what the editor shows: 14 bits */
+{
+    uint32_t h = 2166136261u, k;
+    for (k = 0; k < NP; k++)
+        h = (h ^ set.v[k]) * 16777619u;
+    h = (h ^ set.slot) * 16777619u;
+    h = (h ^ set.preset) * 16777619u;
+    h = (h ^ (uint32_t)(set.octave + 2)) * 16777619u;
+    h = (h ^ ed_flags()) * 16777619u;
+    return (h ^ h >> 14) & 0x3FFFu;
+}
+
+static void ed_status(uint32_t st)
+{
+    ed_tx[4] = 0x19;
+    ed_tx[5] = (uint8_t)(st & 0x7Fu);
+    ed_send(6);
+}
+
+static void ed_state(void)
+{
+    uint32_t n = 5, k;
+    const char *v = APP_VERSION, *nm = preset_name(set.preset);
+    ed_tx[4] = 0x11;
+    for (k = 0; k < 8u; k++)
+        ed_tx[n++] = (uint8_t)(*v ? *v++ & 0x7F : 0);
+    ed_tx[n++] = (uint8_t)NP;
+    ed_tx[n++] = set.slot;
+    ed_tx[n++] = set.preset;
+    ed_tx[n++] = (uint8_t)(set.octave + 2);
+    ed_tx[n++] = (uint8_t)ed_flags();
+    for (k = 0; k < NP; k++)
+        ed_tx[n++] = set.v[k] & 0x7Fu;
+    for (k = 0; k < 12u; k++)
+        ed_tx[n++] = (uint8_t)(*nm ? *nm++ & 0x7F : 0);
+    ed_tx[n++] = (uint8_t)NUSER;
+    ed_tx[n++] = (uint8_t)NPRESET;
+    ed_send(n);
+}
+
+static void ed_monitor(void)
+{
+    uint32_t n = 5, k, h = ed_hash();
+    ed_tx[4] = 0x17;
+    ed_tx[n++] = (uint8_t)(h & 0x7Fu);
+    ed_tx[n++] = (uint8_t)(h >> 7);
+    ed_tx[n++] = (uint8_t)aet_active(&eng);
+    ed_tx[n++] = (uint8_t)(plat_cpu_pct() > 127u ? 127u : plat_cpu_pct());
+    ed_tx[n++] = shed;
+    ed_tx[n++] = ui.page;
+    ed_tx[n++] = (uint8_t)ed_flags();
+    for (k = 0; k < NP; k++)
+        ed_tx[n++] = (uint8_t)clamp((int32_t)(mod_v[k] + 0.5f), 0, 127);
+    for (k = 0; k < NMS; k++)
+        ed_tx[n++] = (uint8_t)clamp((int32_t)(64.0f + 63.0f * msrc[k] + 0.5f), 0, 127);
+    for (k = 0; k < AET_DISP; k++) {
+        float m = eng.disp[k], db = m > 1e-9f ? 6.0206f * fm_log2f(m) : -200.0f;
+        ed_tx[n++] = (uint8_t)clamp((int32_t)((db + 96.0f) * (127.0f / 96.0f)), 0, 127);
+    }
+    for (k = 0; k < NLFO; k++)
+        ed_tx[n++] = (uint8_t)clamp((int32_t)(lfo[k].ph * 127.0f), 0, 127);
+    ed_send(n);
+}
+
+static void ed_param(uint32_t p, uint32_t v)   /* as a knob: the value, then what it moves */
+{
+    if (p >= NP)
+        return;
+    v = v > PDEF[p].max ? PDEF[p].max : v;
+    if (v == set.v[p])
+        return;
+    set.v[p] = (uint8_t)v;
+    set_dirty = 1;
+    edited = 1;
+    if (p == P_EV_VARIANT)
+        motion_make(v);
+    apply();
+}
+
+static int editor_frame(const uint8_t *p, uint32_t n)
+{
+    uint32_t k;
+    switch (p[3]) {
+    case 0x10:
+        ed_state();
+        break;
+    case 0x12:
+        if (n >= 6u)
+            ed_param(p[4], p[5]);
+        break;
+    case 0x13:
+        if (n >= 5u && p[4] < NSLOT && (p[4] != SLOT_USER || user_sample()))
+            slot_set(p[4]);
+        break;
+    case 0x14:
+        if (n >= 5u && (p[4] < NPRESET || user_used(p[4] - NPRESET))) {
+            preset_load(p[4]);
+            slot_remember(set.slot);
+            set_dirty = 1;
+            edited = 0;
+            if (!page_ok(ui.page))
+                page_set(PG_SOURCE);
+            apply();
+            ev_push(Q_SOURCE, set.slot, 0);
+            app_say("PRESET", preset_name(set.preset));
+        }
+        break;
+    case 0x15:
+        if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
+            set_dirty = 0;
+            edited = 0;
+            app_say("SAVED", "");
+            ed_status(0);
+        } else {
+            ed_status(1);
+        }
+        break;
+    case 0x16:
+        ed_monitor();
+        break;
+    case 0x18:                           /* K NAME[12]: the current sound into user preset K */
+        if (n < 5u || p[4] >= NUSER) {
+            ed_status(2);
+            break;
+        }
+        {
+            upreset_t *u = &ubank.p[p[4]];
+            for (k = 0; k < 12u; k++)
+                u->name[k] = (char)(5u + k < n && p[5u + k] >= 0x20u ? p[5u + k] : 0);
+            u->slot = set.slot;
+            u->used = 1;
+            for (k = 0; k < NP; k++)
+                u->v[k] = set.v[k];
+            ubank.np = NP;
+            if (plat_store_save(OBJ_USER, &ubank, sizeof ubank) != 0) {
+                u->used = 0;
+                ed_status(1);
+                break;
+            }
+            set.preset = (uint8_t)(NPRESET + p[4]);
+            edited = 0;
+            set_dirty = 1;               /* (the settings now point to it: SAVE keeps that) */
+            app_say("STORED", preset_name(set.preset));
+            ui.redraw = 1;
+            ed_status(0);
+        }
+        break;
+    case 0x1A:
+        k = 5;
+        ed_tx[4] = 0x1B;
+        {
+            uint32_t j, i;
+            for (i = 0; i < NUSER; i++) {
+                ed_tx[k++] = (uint8_t)user_used(i);
+                for (j = 0; j < 12u; j++)
+                    ed_tx[k++] = (uint8_t)(user_used(i) && ubank.p[i].name[j] ? ubank.p[i].name[j] & 0x7F : 0);
+            }
+        }
+        ed_send(k);
+        break;
+    case 0x1C:
+        if (n < 5u || p[4] >= NUSER) {
+            ed_status(2);
+            break;
+        }
+        ubank.p[p[4]].used = 0;
+        if (plat_store_save(OBJ_USER, &ubank, sizeof ubank) != 0) {
+            ubank.p[p[4]].used = 1;
+            ed_status(1);
+            break;
+        }
+        if (set.preset == NPRESET + p[4])
+            set.preset = 0;              /* (the sound stays; it is no preset's any more) */
+        ui.redraw = 1;
+        ed_status(0);
+        break;
+    default:
+        break;
+    }
+    return 1;
+}
+
 void app_frame(void)
 {
     static uint32_t frames_seen, last_t, n, static_ms, tip_at;
@@ -2514,6 +2817,14 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "lit"))        /* the page buttons lit, as B_* bits (FX 1, SEL 2, ENV 4, LFO 8, EDIT 16,
                                           * GLO 32, HOME 64, SEQ 512) */
         *got = (int)ui.lit_nav;
+    else if (!strcmp(what, "rx_cmd"))     /* the editor's last answer: its command (0 = none) */
+        *got = ed_last_n > 4u ? ed_last[4] : 0;
+    else if (!strcmp(what, "rx_n"))       /* its length, F0 .. F7 */
+        *got = (int)ed_last_n;
+    else if (!strncmp(what, "rx", 2) && what[2] >= '0' && what[2] <= '9')   /* "rxN": its byte N (from F0) */
+        *got = (uint32_t)atoi(what + 2) < ed_last_n ? ed_last[atoi(what + 2)] : -1;
+    else if (!strcmp(what, "user_used"))  /* the user presets that hold something, as bits */
+        *got = (int)({ uint32_t b_ = 0, i_; for (i_ = 0; i_ < NUSER; i_++) b_ |= (uint32_t)user_used(i_) << i_; b_; });
     else if (!strcmp(what, "help"))       /* HOME held: the buttons' map */
         *got = ui.help;
     else if (!strcmp(what, "moving"))     /* something moves the sound over time (EVOLVE) */
@@ -2537,6 +2848,135 @@ int app_expect(const char *what, int *got)
     return 1;
 }
 
+/* the editor's map: every parameter (its name, its range, the text of each of its values, as the FM-1 shows them),
+ * the pages (by button, as on the FM-1; SOURCE's for each kind of source), the sources, the presets, the matrix's
+ * sources and destinations, and the EQ's values (Hz, dB, octaves) to draw its curve with */
+static void json_str(FILE *f, const char *s)
+{
+    fputc('"', f);
+    for (; *s; s++) {
+        if (*s == '"' || *s == '\\')
+            fputc('\\', f);
+        fputc(*s, f);
+    }
+    fputc('"', f);
+}
+
+static int params_json(const char *path)
+{
+    static const uint8_t KIND_SLOT[NKIND] = {SLOT_CHOIR, SLOT_LIVE0, SLOT_PAD, SLOT_HARM, SLOT_VA};
+    FILE *f = fopen(path, "w");
+    uint32_t p, v, k, g, pg, old_slot = set.slot, old_page = ui.page;
+    char t[32];
+    if (!f) {
+        printf("FAIL params %s: cannot write\n", path);
+        up_errors++;
+        return 1;
+    }
+    fprintf(f, "{\"np\": %u, \"version\": ", (unsigned)NP);
+    json_str(f, APP_VERSION);
+    fprintf(f, ",\n\"params\": [\n");
+    for (p = 0; p < NP; p++) {
+        uint8_t keep = set.v[p];
+        fprintf(f, "  {\"name\": ");
+        json_str(f, PDEF[p].name);
+        fprintf(f, ", \"max\": %u, \"def\": %u, \"text\": [", PDEF[p].max, PDEFAULT[p]);
+        for (v = 0; v <= PDEF[p].max; v++) {
+            set.v[p] = (uint8_t)v;
+            value_text(p, t);
+            if (v)
+                fputc(',', f);
+            json_str(f, t);
+        }
+        set.v[p] = keep;
+        fprintf(f, "]}%s\n", p + 1u < NP ? "," : "");
+    }
+    fprintf(f, "],\n\"groups\": [\n");
+    for (g = 0; g < NGROUP; g++) {
+        fprintf(f, "  {\"button\": ");
+        json_str(f, GROUP_NAME[g]);
+        fprintf(f, ", \"pages\": [");
+        for (k = 0; GROUP_PAGES[g][k] != NPAGE; k++) {
+            const uint8_t *pp;
+            pg = GROUP_PAGES[g][k];
+            fprintf(f, "%s\n    {\"id\": %u, \"name\": ", k ? "," : "", pg);
+            json_str(f, PAGE_NAME[pg]);
+            fprintf(f, ", \"harm_only\": %s, \"params\": ", pg >= PG_TONE && pg <= PG_ENVD ? "true" : "false");
+            if (pg == PG_SOURCE) {       /* SOURCE: its four knobs for each kind */
+                fprintf(f, "{");
+                for (v = 0; v < NKIND; v++) {
+                    set.slot = KIND_SLOT[v];
+                    ui.page = PG_SOURCE;
+                    pp = page_params();
+                    fprintf(f, "%s\"%s\": [%d, %d, %d, %d]", v ? ", " : "", KIND_NAME[v],
+                            pp[0] == P_NONE ? -1 : pp[0], pp[1] == P_NONE ? -1 : pp[1], pp[2] == P_NONE ? -1 : pp[2],
+                            pp[3] == P_NONE ? -1 : pp[3]);
+                }
+                fprintf(f, "}}");
+            } else {
+                set.slot = SLOT_HARM;    /* (TONE and HARM ENV A-D are HARM's) */
+                ui.page = (uint8_t)pg;
+                pp = page_params();
+                fprintf(f, "[%d, %d, %d, %d]}", pp[0] == P_NONE ? -1 : pp[0], pp[1] == P_NONE ? -1 : pp[1],
+                        pp[2] == P_NONE ? -1 : pp[2], pp[3] == P_NONE ? -1 : pp[3]);
+            }
+        }
+        fprintf(f, "]}%s\n", g + 1u < NGROUP ? "," : "");
+    }
+    set.slot = (uint8_t)old_slot;
+    ui.page = (uint8_t)old_page;
+    fprintf(f, "],\n\"kinds\": [");
+    for (v = 0; v < NKIND; v++) {
+        if (v)
+            fputc(',', f);
+        json_str(f, KIND_NAME[v]);
+    }
+    fprintf(f, "],\n\"slots\": [");
+    for (v = 0; v < NSLOT; v++) {
+        fprintf(f, "%s{\"kind\": %u, \"name\": ", v ? ", " : "", kind_of(v));
+        json_str(f, kind_of(v) == K_SAMPLE || kind_of(v) == K_LIVE ? slot_name(v) : KIND_NAME[kind_of(v)]);
+        fprintf(f, ", \"user\": %s}", v == SLOT_USER ? "true" : "false");
+    }
+    fprintf(f, "],\n\"presets\": [");
+    for (v = 0; v < NPRESET; v++) {
+        fprintf(f, "%s{\"name\": ", v ? ", " : "");
+        json_str(f, PRESETS[v].name);
+        fprintf(f, ", \"slot\": %u}", PRESETS[v].slot);
+    }
+    fprintf(f, "],\n\"nuser\": %u,\n\"sources\": [", (unsigned)NUSER);
+    for (v = 0; v < NMS; v++) {
+        if (v)
+            fputc(',', f);
+        json_str(f, MS_NAME[v]);
+    }
+    fprintf(f, "],\n\"dests\": [");
+    for (v = 0; v < NDEST; v++) {
+        fprintf(f, "%s{\"name\": ", v ? ", " : "");
+        json_str(f, DEST_NAME[v]);
+        fprintf(f, ", \"param\": %d}", MOD_DEST[v] == P_NONE ? -1 : MOD_DEST[v]);
+    }
+    fprintf(f, "],\n\"ids\": {\"P_MX0\": %u, \"NMX\": %u, \"P_LFO0\": %u, \"NLFO\": %u, \"P_MENV0\": %u, \"NMENV\": %u, "
+            "\"P_EQ0\": %u, \"NEQ\": %u, \"P_HENV0\": %u, \"P_MSLOT\": %u, \"P_CORE2\": %u, \"P_EV_VARIANT\": %u, "
+            "\"P_TILT\": %u, \"P_SIZE\": %u},\n", (unsigned)P_MX0, (unsigned)NMX, (unsigned)P_LFO0, (unsigned)NLFO,
+            (unsigned)P_MENV0, (unsigned)NMENV, (unsigned)P_EQ0, (unsigned)AET_EQ, (unsigned)P_HENV0,
+            (unsigned)P_MSLOT, (unsigned)P_CORE2, (unsigned)P_EV_VARIANT, (unsigned)P_TILT, (unsigned)P_SIZE);
+    fprintf(f, "\"eq\": {\"types\": [\"OFF\", \"BELL\", \"LOW SHELF\", \"HIGH SHELF\", \"LOW CUT\", \"HIGH CUT\"], "
+            "\"hz\": [");
+    for (v = 0; v < 128u; v++)
+        fprintf(f, "%s%.2f", v ? "," : "", (double)eq_hz_of((float)v));
+    fprintf(f, "], \"db\": [");
+    for (v = 0; v < 128u; v++)
+        fprintf(f, "%s%.3f", v ? "," : "", (double)eq_db_of((float)v));
+    fprintf(f, "], \"oct\": [");
+    for (v = 0; v < 128u; v++)
+        fprintf(f, "%s%.4f", v ? "," : "", (double)eq_oct_of((float)v));
+    fprintf(f, "]},\n\"disp\": {\"bands\": %u, \"lo_hz\": 40, \"octaves\": 8.643856, \"db_lo\": -96, \"db_hi\": 0}\n}\n",
+            (unsigned)AET_DISP);
+    fclose(f);
+    printf("  ok   params: %s\n", path);
+    return 1;
+}
+
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d)
 {
     FILE *f;
@@ -2548,6 +2988,27 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         app_overload();
         return 1;
     }
+    if (!strcmp(cmd, "tx")) {            /* "tx 7D 41 45 10 ...": a SysEx frame's bytes (between F0 and F7), in hex */
+        const char *q = plat_host_line;
+        while (*q == ' ' || *q == '\t')
+            q++;
+        q += 2;                          /* ("tx") */
+        while (*q) {
+            char *end;
+            long v = strtol(q, &end, 16);
+            if (end == q)
+                break;
+            if (n < sizeof m)
+                m[n++] = (uint8_t)v;
+            q = end;
+        }
+        ed_last_n = 0;
+        if (!app_sysex(m, n))
+            up_errors++;
+        return 1;
+    }
+    if (!strcmp(cmd, "params"))          /* "params FILE": the editor's map (web/editor), JSON */
+        return params_json(a);
     if (strcmp(cmd, "sysex"))
         return 0;
     if (!(f = fopen(a, "rb"))) {

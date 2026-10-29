@@ -38,7 +38,7 @@ import aet_adpcm  # noqa: E402
 import aet_sbr  # noqa: E402
 
 HDR_SECTOR = 0x1000
-MAX_BYTES = 0xDC000 - 0x98000          # app.h SMP_MAX_BYTES
+MAX_BYTES = 0xDA000 - 0x98000          # app.h SMP_MAX_BYTES
 CHUNK = 256                            # bytes a DATA message
 STATUS = {0: "ok", 1: "not now", 2: "too long", 3: "out of order", 4: "the flash refused", 5: "CRC mismatch"}
 

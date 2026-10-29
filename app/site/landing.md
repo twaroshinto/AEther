@@ -20,6 +20,12 @@ The firmware file itself: [{{PKG}}](firmware/{{PKG}}).
 
 **[AEther in the browser](emu/)**: the same firmware, emulated, with sound. / ten sam firmware w przeglądarce.
 
+## Editor / Edytor
+
+**[AEther editor](editor/)**: every parameter at once, the spectrum, the matrix, what modulation does right now;
+store your sounds as user presets on the FM-1 (Chrome or Edge, the FM-1 on USB). / wszystkie parametry naraz,
+widmo, matryca i bieżąca modulacja; zapis własnych presetów w FM-1.
+
 ## Manual / Instrukcja
 
 **[User manual (English)](manual/en.html)** · **[Instrukcja obsługi (polski)](manual/)**

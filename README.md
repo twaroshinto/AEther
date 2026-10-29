@@ -107,12 +107,25 @@ cd app/build/emu && python3 -m http.server 8000   # http://localhost:8000
 
 CI buduje go przy każdym pushu (artefakt `aether-emulator`).
 
+## Edytor w przeglądarce
+
+`web/editor/` (na stronie: **editor/**) łączy się z FM-1, na którym działa AEther, przez USB-MIDI (Web MIDI z
+SysEx: Chrome, Edge, Opera). Pokazuje naraz wszystkie strony i parametry, widmo z krzywą EQ, matrycę modulacji z
+bieżącymi wartościami źródeł i to, gdzie modulacja przesuwa każdy parametr w tej chwili. Pokrętło na FM-1 od razu
+widać na stronie i odwrotnie. Brzmienie można zapisać w FM-1 jako jeden z 16 presetów użytkownika (pojawia się
+też na liście PRESETS w urządzeniu) albo jako ustawienia na następne włączenie. Bez FM-1 strona działa jako
+podgląd. Protokół: komentarz „the editor” w `app/app.c`; mapa parametrów (`params.json`) powstaje z buildu hosta
+(`app/tests/params.txt`), więc zawsze zgadza się z firmware'em.
+
+Presety użytkownika zajmują dwa sektory flash pod ustawieniami panelu, więc obszar na własny sample zmalał do
+270 KB (23 s zamiast 24 s).
+
 ## Własny sample
 
 ```sh
 pip install numpy mido python-rtmidi
-python3 tools/aether_load.py moj_dzwiek.wav                 # mono, 22,05 kHz, ADPCM + SBR: do 24 s
-python3 tools/aether_load.py moj_dzwiek.wav --rate 11025    # 4,9 kHz w pamięci, reszta z SBR: do 48 s
+python3 tools/aether_load.py moj_dzwiek.wav                 # mono, 22,05 kHz, ADPCM + SBR: do 23 s
+python3 tools/aether_load.py moj_dzwiek.wav --rate 11025    # 4,9 kHz w pamięci, reszta z SBR: do 47 s
 python3 tools/aether_load.py moj_dzwiek.wav --pcm16         # 16 bit bez szumu ADPCM: do 6,3 s
 python3 tools/aether_load.py moj_dzwiek.wav --rate 44100    # pełne pasmo, bez SBR: do 12 s (3,1 s z --pcm16)
 python3 tools/aether_load.py dlugi.wav --start 12 --secs 5  # fragment

@@ -480,6 +480,9 @@ Choosing a preset changes the source, every knob, the modulators and the matrix.
 including knob changes, but there is only one save slot. With unsaved changes (the asterisk next to the name), the
 first turn of PRESETS only warns, and the next one changes the preset.
 
+To keep more sounds, store them as user presets (up to 16) from the browser editor: they show in the PRESETS list
+after the factory ones, under their own names.
+
 ## Playing
 
 - **HOLD (PLAY):** play a chord, let go, and it stays. The next chord replaces it. Pressing PLAY again turns HOLD
@@ -511,12 +514,29 @@ Over USB and the TRS jack:
 
 Notes from the FM-1's keys go out over USB.
 
+## The editor in the browser
+
+The project's site has an editor (**editor/**) that talks to the FM-1 over USB (Chrome, Edge or Opera on a
+computer; the browser asks for MIDI access with SysEx):
+
+1. Connect the FM-1 running AEther with a USB cable, open the editor, pick the FM-1's port and click **Connect**.
+2. Every page (EDIT, ENV, LFO, SEQ, FX, GLO) is visible at once. A change on the page plays on the FM-1 at once,
+   and a knob turned on the FM-1 shows on the page.
+3. Pink marks on the sliders show where modulation (LFOs, envelopes, EVOLVE) moves a parameter right now. The
+   chart on top is the spectrum of what plays, with the EQ curve (as set and as modulated). The matrix shows each
+   slot's source value as it is now.
+4. **Store as user preset:** give it a name (up to 12 characters), pick one of 16 places and store. The preset goes
+   into the FM-1's flash and shows in the PRESETS list (after the 31 factory ones). **Save settings** does what
+   SAVE does on the FM-1.
+
+Double-click a slider to get its default back. With no FM-1 connected the editor is a preview and sends nothing.
+
 ## Your own sample
 
 ```sh
 pip install numpy mido python-rtmidi
-python3 tools/aether_load.py my.wav                 # up to 24 s, 22 kHz + high-band rebuild (SBR)
-python3 tools/aether_load.py my.wav --rate 11025    # up to 48 s
+python3 tools/aether_load.py my.wav                 # up to 23 s, 22 kHz + high-band rebuild (SBR)
+python3 tools/aether_load.py my.wav --rate 11025    # up to 47 s
 python3 tools/aether_load.py my.wav --pcm16         # no compression noise, up to 6 s
 ```
 
