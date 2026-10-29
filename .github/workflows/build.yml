@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# the site (GitHub Pages) is made and deployed from a release tag (vX.Y): one deployment at a time
+concurrency:
+  group: ${{ github.ref_type == 'tag' && 'pages' || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -128,6 +133,7 @@ jobs:
       - name: Run
         run: |
           mkdir -p out && cd out
+          FW="$(ls "$PWD"/../fw/*.fwsc | head -1)"   # (aether.fwsc, or aether-X.Y.fwsc on a tag)
           wc -l ../fw/aether.syms; grep -E " (buf_l|eng)$" ../fw/aether.syms || head -20 ../fw/aether.syms
           python3 ../tools/emu_diag.py sym ../fw/aether.syms buf_l buf_r eng gain_now | tee syms.txt
           if grep -q missing syms.txt; then exit 1; fi
@@ -137,7 +143,7 @@ jobs:
           # three runs side by side, each with one --dump at its end: the audio blocks, the engine's start, its end
           run() {   # NAME DUMP_ADDR WORDS
             mkdir -p "$1/work" && (cd "$1" && FM1_AUDIO_TRACE=1 timeout 1500 ~/fm1-emu/target/release/fm1-emu \
-              --fwsc ../../fw/aether.fwsc --ms 9000 --wav aether.wav --snap 1500,3000,5000,8000 \
+              --fwsc "$FW" --ms 9000 --wav aether.wav --snap 1500,3000,5000,8000 \
               --keys '2500-8500:C4,2500-8500:E4,2500-8500:G4' --dump "$2" "$3" > run.log 2>&1 || true)
           }
           run blocks "$(addr buf_l)" 512 & run eng "$ENG" 1024 & run engend "$ENG_END" 160 & wait
@@ -150,3 +156,51 @@ jobs:
         with:
           name: fm1-emu-run
           path: out/
+
+  # a release tag (vX.Y): the site with the web installer, the emulator, the manuals (and the editor), on GitHub
+  # Pages (Settings > Pages > Source: GitHub Actions)
+  site:
+    if: github.ref_type == 'tag'
+    needs: [firmware, emulator]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install Pillow numpy
+      - uses: actions/download-artifact@v4
+        with:
+          name: aether-firmware
+          path: app/build
+      - uses: actions/download-artifact@v4
+        with:
+          name: aether-emulator
+          path: app/build/emu
+      - name: The editor's parameter map (the host build's)
+        run: |
+          if [ -f app/tests/params.txt ]; then ./build.sh --host && app/build/host/aether_host app/tests/params.txt app/build/host; fi
+      - name: Site
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          ls app/build app/build/emu
+          sh tools/make_site.sh "$V" "app/build/aether-$V.fwsc" site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  pages:
+    if: github.ref_type == 'tag'
+    needs: site
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
