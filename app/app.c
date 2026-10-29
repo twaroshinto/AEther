@@ -760,6 +760,110 @@ static void midi_in(void)                /* audio interrupt */
     }
 }
 
+/* ------------------------------------------------------------------ debug --- */
+/* What the render costs on the machine, for the editor's Debug panel (SysEx 1D / 1F, "the editor" below): each
+ * render's time (the engine, the VA / LIVE generator, the modulation, in that order), a histogram of its load, the
+ * engine's stages (aet_prof_t), and a log of the renders that went wrong: over 80 % of their time, a frame late, or
+ * an xrun (the platform's: the DMA moved on before the render was done). Always on: a few clock reads a render. */
+#ifdef PLAT_HOST
+#include <time.h>
+static uint32_t dbg_clock(void)          /* the FM-1's TIMER4 rate: 24 ticks a microsecond */
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint32_t)((uint64_t)t.tv_sec * 24000000u + (uint64_t)t.tv_nsec * 24u / 1000u);
+}
+#else
+static uint32_t dbg_clock(void) { return fm1_ticks(); }
+#endif
+#define DBG_TPU 24u                      /* ticks a microsecond */
+#define DBG_NEV 16u
+enum { DBG_SLOW = 1, DBG_LATE = 2, DBG_XRUN = 4 };
+typedef struct {
+    uint32_t ms;                         /* when (plat_ms) */
+    uint16_t us, eng_us, src_us, mod_us; /* the render's time and its parts */
+    uint8_t kind, st0, st1, voices;      /* DBG_*; the engine's stage before and after; voices sounding */
+    uint8_t slot, size, shed, flags;     /* the source, SIZE, the overload guard's step, HOLD 1 FREEZE 2 2ND CORE 4 */
+    uint16_t store_ago;                  /* ms since a flash write began (65535: long ago) */
+    uint16_t xruns;
+} dbg_ev_t;
+static struct {
+    aet_prof_t prof;
+    uint64_t sum_us;
+    uint32_t renders, max_us, hist[11];  /* the load in 10 % steps (the last: 100 % and over) */
+    uint32_t eng_max, src_max, mod_max;
+    uint32_t xruns0, xr_seen, late0, slow, store_n, store_ms;
+    uint32_t ev_n;                       /* events ever (the log keeps the last DBG_NEV) */
+    dbg_ev_t ev[DBG_NEV];
+} dbg;
+
+static void dbg_reset(void)
+{
+    uint8_t *b = (uint8_t *)&dbg + sizeof dbg.prof.clock;
+    uint32_t k;
+    for (k = 0; k < sizeof dbg - sizeof dbg.prof.clock; k++)
+        b[k] = 0;
+    dbg.xruns0 = plat_xruns();
+    dbg.late0 = eng.late;
+}
+
+static void dbg_store(void)              /* a flash write begins (main loop): it holds the CPU, the sound may stop */
+{
+    dbg.store_n++;
+    dbg.store_ms = plat_ms();
+}
+
+static int store_save(uint32_t obj, const void *src, uint32_t len)   /* plat_store_save, noted */
+{
+    dbg_store();
+    return plat_store_save(obj, src, len);
+}
+
+static void dbg_render(uint32_t t0, uint32_t te, uint32_t ts, uint32_t tm, uint32_t t1, uint32_t n, uint32_t st0,
+                       uint32_t late_was)
+{
+    uint32_t us = (t1 - t0) / DBG_TPU, budget = n * 1000000u / 44100u, kind = 0, xr = plat_xruns() - dbg.xruns0;
+    uint32_t pct = us * 10u / (budget ? budget : 1u);
+    dbg.renders++;
+    dbg.sum_us += us;
+    if (us > dbg.max_us)
+        dbg.max_us = us;
+    dbg.hist[pct > 10u ? 10u : pct]++;
+    if ((te - ts) / DBG_TPU > dbg.eng_max)
+        dbg.eng_max = (te - ts) / DBG_TPU;
+    if ((ts - tm) / DBG_TPU > dbg.src_max)
+        dbg.src_max = (ts - tm) / DBG_TPU;
+    if ((tm - t0) / DBG_TPU > dbg.mod_max)
+        dbg.mod_max = (tm - t0) / DBG_TPU;
+    if (us * 5u > budget * 4u)
+        kind |= DBG_SLOW, dbg.slow++;
+    if (eng.late != late_was)
+        kind |= DBG_LATE;
+    if (xr != dbg.xr_seen) {             /* (one an earlier render made: seen in the next) */
+        kind |= DBG_XRUN;
+        dbg.xr_seen = xr;
+    }
+    if (kind) {
+        dbg_ev_t *v = &dbg.ev[dbg.ev_n++ % DBG_NEV];
+        uint32_t ago = plat_ms() - dbg.store_ms;
+        v->ms = plat_ms();
+        v->us = (uint16_t)(us > 65535u ? 65535u : us);
+        v->eng_us = (uint16_t)((te - ts) / DBG_TPU);
+        v->src_us = (uint16_t)((ts - tm) / DBG_TPU);
+        v->mod_us = (uint16_t)((tm - t0) / DBG_TPU);
+        v->kind = (uint8_t)kind;
+        v->st0 = (uint8_t)st0;
+        v->st1 = eng.st;
+        v->voices = (uint8_t)aet_active(&eng);
+        v->slot = set.slot;
+        v->size = (uint8_t)set.v[P_SIZE];
+        v->shed = shed;
+        v->flags = (uint8_t)((hold ? 1u : 0u) | (freeze ? 2u : 0u) | (eng.dual ? 4u : 0u));
+        v->store_ago = (uint16_t)(dbg.store_n && ago < 65535u ? ago : 65535u);
+        v->xruns = (uint16_t)xr;
+    }
+}
+
 /* ------------------------------------------------------------------ audio --- */
 static float gain_now;
 static float buf_l[APP_BLOCK], buf_r[APP_BLOCK];
@@ -782,9 +886,10 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     ev_r = r;
     midi_in();
     while (n) {
-        uint32_t m = n < APP_BLOCK ? n : APP_BLOCK;
+        uint32_t m = n < APP_BLOCK ? n : APP_BLOCK, t0 = dbg_clock(), tm, ts, te, st0 = eng.st, late = eng.late;
         mod_step((float)m / 44100.0f);
         map_params();
+        tm = dbg_clock();
         if (va_on) {                     /* VA: its newest block into the LIVE ring first */
             va_render(&va, buf_l, m);
             aet_live_push(&eng, buf_l, m);
@@ -794,12 +899,15 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             live_render(&lg, buf_l, m);
             aet_live_push(&eng, buf_l, m);
         }
+        ts = dbg_clock();
         aet_render(&eng, buf_l, buf_r, m);
+        te = dbg_clock();
         for (i = 0; i < m; i++) {
             gain_now += (gain - gain_now) * 0.004f;          /* turning MASTER does not click */
             lr[2u * i] = (int32_t)(buf_l[i] * gain_now);
             lr[2u * i + 1u] = (int32_t)(buf_r[i] * gain_now);
         }
+        dbg_render(t0, te, ts, tm, dbg_clock(), m, st0, late);
         lr += 2u * m;
         n -= m;
     }
@@ -937,6 +1045,9 @@ void app_init(void)
     if (set.slot == SLOT_USER && !user_sample())
         set.slot = SLOT_CHOIR;
     aet_init(&eng, eng_ram);
+    dbg.prof.clock = dbg_clock;
+    eng.prof = &dbg.prof;
+    dbg_reset();
     core2_wanted_at_boot = set.v[P_CORE2];
 #ifndef PLAT_HOST
     if (set.v[P_CORE2] && core1_start() == 0)   /* (before the audio: core 1 starts at power-on only) */
@@ -1013,6 +1124,7 @@ static uint32_t up_begin(const uint8_t *p, uint32_t n)
     if (set.slot == SLOT_USER)
         ev_push(Q_SOURCE, SLOT_USER, 0);   /* (plays the built-in while uploading) */
     up.next = 0;
+    dbg_store();
     if (plat_data_erase(SMP_HDR_OFF))    /* a load cut short leaves no header: nothing half-made plays */
         return 4;
     app_say("LOADING", up.name);
@@ -1036,6 +1148,7 @@ static uint32_t up_data(const uint8_t *p, uint32_t n)
         return 2;
     for (k = 0; k < m;) {                /* erase each sector as the data reaches it, then write */
         uint32_t at = SMP_DATA_OFF + off + k, room = 0x1000u - (at & 0xFFFu), w = m - k < room ? m - k : room;
+        dbg_store();
         if ((at & 0xFFFu) == 0 && plat_data_erase(at))
             return 4;
         if (plat_data_write(at, up.buf + k, w))
@@ -1967,7 +2080,7 @@ static void input(void)
             app_say("ALL NOTES", "OFF");
             break;
         case B_SAVE:
-            if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
+            if (store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
                 set_dirty = 0;
                 edited = 0;
                 app_say("SAVED", "");
@@ -2520,6 +2633,13 @@ void app_ui_init(void)
  *   18 K NAME[12]          -> 19 STATUS: the current sound kept as user preset K (and chosen)
  *   1A                     -> 1B (USED NAME[12]) x NUSER
  *   1C K                   -> 19 STATUS: user preset K deleted
+ *   1D 0                   -> 1E 0 the render's debug (see "debug"): BUDGET-US RENDERS AVG-US MAX-US HIST[11] XRUNS
+ *                             LATE SLOW ENG-MAX SRC-MAX MOD-MAX STORES UPTIME-MS SIZE VOICES SHED SLOT EVENTS, then
+ *                             each engine stage (aet_prof_name): TOTAL-US MAX-US COUNT
+ *   1D 1 / 1D 2            -> 1E P the log, the older / newer eight: each USED MS US ENG-US SRC-US MOD-US KIND ST0 ST1
+ *                             VOICES SLOT SIZE SHED FLAGS STORE-AGO XRUNS
+ *   1F                     -> 19 0: the debug counts and log zeroed
+ *   (numbers 7 bits a byte, low first: N3 21 bits, N4 28, N5 35)
  * FLAGS: bit 0 changed since chosen, 1 not saved, 2 HOLD, 3 FREEZE, 4 something moves it. STATUS 0 = done. */
 static uint8_t ed_tx[320];
 #ifdef PLAT_HOST
@@ -2557,6 +2677,73 @@ static uint32_t ed_hash(void)            /* of what the editor shows: 14 bits */
     h = (h ^ (uint32_t)(set.octave + 2)) * 16777619u;
     h = (h ^ ed_flags()) * 16777619u;
     return (h ^ h >> 14) & 0x3FFFu;
+}
+
+static uint32_t ed_put(uint32_t k, uint64_t v, uint32_t bytes)   /* v, 7 bits a byte, low first */
+{
+    while (bytes--) {
+        ed_tx[k++] = (uint8_t)(v & 0x7Fu);
+        v >>= 7;
+    }
+    return k;
+}
+
+static void ed_debug(uint32_t page)
+{
+    uint32_t k = 6, i;
+    ed_tx[4] = 0x1E;
+    ed_tx[5] = (uint8_t)page;
+    if (page == 0u) {
+        k = ed_put(k, APP_BLOCK * 1000000u / 44100u, 3);
+        k = ed_put(k, dbg.renders, 4);
+        k = ed_put(k, dbg.renders ? dbg.sum_us / dbg.renders : 0u, 3);
+        k = ed_put(k, dbg.max_us, 3);
+        for (i = 0; i < 11u; i++)
+            k = ed_put(k, dbg.hist[i], 4);
+        k = ed_put(k, plat_xruns() - dbg.xruns0, 3);
+        k = ed_put(k, eng.late - dbg.late0, 3);
+        k = ed_put(k, dbg.slow, 3);
+        k = ed_put(k, dbg.eng_max, 3);
+        k = ed_put(k, dbg.src_max, 3);
+        k = ed_put(k, dbg.mod_max, 3);
+        k = ed_put(k, dbg.store_n, 3);
+        k = ed_put(k, plat_ms(), 4);
+        ed_tx[k++] = (uint8_t)set.v[P_SIZE];
+        ed_tx[k++] = (uint8_t)aet_active(&eng);
+        ed_tx[k++] = shed;
+        ed_tx[k++] = set.slot;
+        k = ed_put(k, dbg.ev_n, 3);
+        for (i = 0; i < AET_NPROF; i++) {
+            k = ed_put(k, dbg.prof.ticks[i] / DBG_TPU, 5);
+            k = ed_put(k, dbg.prof.max[i] / DBG_TPU, 3);
+            k = ed_put(k, dbg.prof.n[i], 4);
+        }
+    } else {                             /* the log: page 1 the older eight, 2 the newer */
+        uint32_t first = dbg.ev_n > DBG_NEV ? dbg.ev_n - DBG_NEV : 0u;
+        for (i = 0; i < 8u; i++) {
+            uint32_t e = first + (page == 1u ? 0u : 8u) + i;
+            const dbg_ev_t *v = &dbg.ev[e % DBG_NEV];
+            ed_tx[k++] = (uint8_t)(e < dbg.ev_n);
+            if (e >= dbg.ev_n)
+                v = &dbg.ev[0];
+            k = ed_put(k, v->ms, 5);
+            k = ed_put(k, v->us, 3);
+            k = ed_put(k, v->eng_us, 3);
+            k = ed_put(k, v->src_us, 3);
+            k = ed_put(k, v->mod_us, 3);
+            ed_tx[k++] = v->kind;
+            ed_tx[k++] = v->st0;
+            ed_tx[k++] = v->st1;
+            ed_tx[k++] = v->voices;
+            ed_tx[k++] = v->slot;
+            ed_tx[k++] = v->size;
+            ed_tx[k++] = v->shed;
+            ed_tx[k++] = v->flags;
+            k = ed_put(k, v->store_ago, 3);
+            k = ed_put(k, v->xruns, 3);
+        }
+    }
+    ed_send(k);
 }
 
 static void ed_status(uint32_t st)
@@ -2655,7 +2842,7 @@ static int editor_frame(const uint8_t *p, uint32_t n)
         }
         break;
     case 0x15:
-        if (plat_store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
+        if (store_save(OBJ_SETTINGS, &set, sizeof set) == 0) {
             set_dirty = 0;
             edited = 0;
             app_say("SAVED", "");
@@ -2681,7 +2868,7 @@ static int editor_frame(const uint8_t *p, uint32_t n)
             for (k = 0; k < NP; k++)
                 u->v[k] = set.v[k];
             ubank.np = NP;
-            if (plat_store_save(OBJ_USER, &ubank, sizeof ubank) != 0) {
+            if (store_save(OBJ_USER, &ubank, sizeof ubank) != 0) {
                 u->used = 0;
                 ed_status(1);
                 break;
@@ -2713,7 +2900,7 @@ static int editor_frame(const uint8_t *p, uint32_t n)
             break;
         }
         ubank.p[p[4]].used = 0;
-        if (plat_store_save(OBJ_USER, &ubank, sizeof ubank) != 0) {
+        if (store_save(OBJ_USER, &ubank, sizeof ubank) != 0) {
             ubank.p[p[4]].used = 1;
             ed_status(1);
             break;
@@ -2721,6 +2908,13 @@ static int editor_frame(const uint8_t *p, uint32_t n)
         if (set.preset == NPRESET + p[4])
             set.preset = 0;              /* (the sound stays; it is no preset's any more) */
         ui.redraw = 1;
+        ed_status(0);
+        break;
+    case 0x1D:
+        ed_debug(n >= 5u && p[4] <= 2u ? p[4] : 0u);
+        break;
+    case 0x1F:
+        dbg_reset();
         ed_status(0);
         break;
     default:

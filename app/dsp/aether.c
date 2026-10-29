@@ -32,6 +32,17 @@ enum { S_WIN, S_LOAD, S_AREV, S_AFFT, S_MAG, S_SBR1, S_SBR2, S_SPR1, S_SPR2, S_C
 #define DISP_LO_LOG2 5.321928f           /* log2(40 Hz) */
 #define DISP_SPAN_LOG2 8.643856f         /* log2(16000 / 40) */
 
+const char *const aet_prof_name[AET_NPROF] = {"WIN", "LOAD", "AREV", "AFFT", "MAG", "SBR1", "SBR2", "SPR1",
+                                               "SPR2", "CLEAR", "VOICE", "PHASE", "SREV", "SFFT", "SWAP", "LATE"};
+
+static inline void prof_add(aet_prof_t *p, uint32_t k, uint32_t dt)
+{
+    p->ticks[k] += dt;
+    p->n[k]++;
+    if (dt > p->max[k])
+        p->max[k] = dt;
+}
+
 uint32_t aet_size_n(uint32_t size) { return AET_NMIN << (size < AET_NSIZE ? size : AET_NSIZE - 1u); }
 
 /* ------------------------------------------------------------------ tables --- */
@@ -1041,6 +1052,7 @@ static void work(aet_t *e, uint32_t budget)   /* budget: units; 0xFFFFFFFF = to 
 {
     uint32_t spent = 0;
     while (e->st != S_DONE && spent < budget) {
+        uint32_t st = e->st, t0 = e->prof ? e->prof->clock() : 0u;
         e->units = 0;
         if (e->st == S_VOICE && e->dual && !e->c1.done && !e->c0.done && e->par_run && !e->par_failed) {
             /* both cores paint at once: the second its voices into acc2, this one its own into acc */
@@ -1063,6 +1075,8 @@ static void work(aet_t *e, uint32_t budget)   /* budget: units; 0xFFFFFFFF = to 
         }
         spent += e->units;
         e->units_frame += e->units;
+        if (e->prof && st < S_DONE)
+            prof_add(e->prof, st, e->prof->clock() - t0);
     }
 }
 
@@ -1072,9 +1086,14 @@ static void swap(aet_t *e)
     uint32_t hop = e->hop, k;
     float th = fm_clampf(e->fp.width, 0.0f, 1.0f) * (FM_PI * 0.25f), c = fm_cosf(th), s = fm_sinf(th);
     float g = e->fp.level;
+    uint32_t t0 = e->prof ? e->prof->clock() : 0u;
     if (e->st != S_DONE) {               /* not ready in time: finish it now (a spike, counted) */
         e->late++;
         work(e, 0xFFFFFFFFu);
+        if (e->prof) {
+            prof_add(e->prof, AET_PROF_LATE, e->prof->clock() - t0);
+            t0 = e->prof->clock();
+        }
     }
     for (k = 0; k < hop; k++) {
         float w0 = e->win[k], w1 = e->win[hop - 1u - k];
@@ -1100,6 +1119,8 @@ static void swap(aet_t *e)
     frame_begin(e);
     for (k = hop; k < e->hop; k++)       /* a longer frame next: the tail ends where this frame's did */
         e->tail[0][k] = e->tail[1][k] = 0.0f;
+    if (e->prof)
+        prof_add(e->prof, AET_PROF_SWAP, e->prof->clock() - t0);
 }
 
 static inline float ceiling(float x)    /* a soft ceiling: linear up to 0.5, then towards 1 */

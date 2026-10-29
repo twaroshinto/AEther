@@ -538,6 +538,11 @@ komputerze; przeglądarka zapyta o dostęp do MIDI z SysEx):
    trafia do pamięci flash FM-1 i pojawia się na liście PRESETS (po 31 fabrycznych). **Zapisz ustawienia** działa
    jak SAVE na FM-1.
 
+**Debug** (na dole edytora): gdy jest otwarty, FM-1 raz na sekundę podaje, ile trwa każde renderowanie dźwięku
+(silnik, źródło, modulacja), które etapy silnika zabierają czas, oraz dziennik renderowań, które poszły źle (ponad
+80 % czasu, spóźniona ramka, xrun), każde z tym, co wtedy działało. Gdy dźwięk się przerywa, otwórz go, graj aż to
+się stanie, naciśnij **Kopiuj raport** i wyślij tekst ze zgłoszeniem.
+
 Dwuklik na suwaku przywraca wartość domyślną. Bez podłączonego FM-1 edytor działa jako podgląd i niczego nie
 wysyła.
 

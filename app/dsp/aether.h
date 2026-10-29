@@ -144,6 +144,18 @@ typedef struct {
 
 #define AET_GT 130u                      /* the Gaussian band's table: exp(-x^2 / 2), x = 0 .. 3.225 */
 
+/* a profile of the work (aet_t.prof, optional): the time of each stage of the frame's job, of swap (the finished
+ * frame out, the next begun) and of the work a late frame left to swap, in the caller's clock's ticks */
+#define AET_NPROF 16u
+enum { AET_PROF_SWAP = 14, AET_PROF_LATE = 15 };
+extern const char *const aet_prof_name[AET_NPROF];
+typedef struct {
+    uint32_t (*clock)(void);             /* a free-running counter */
+    uint64_t ticks[AET_NPROF];           /* all of each, since the counts were zeroed */
+    uint32_t max[AET_NPROF];             /* the longest single step of each */
+    uint32_t n[AET_NPROF];
+} aet_prof_t;
+
 typedef struct {
     aet_params_t p;                      /* written by the caller */
     float eq_tab[AET_EQ_TAB + 1u];       /* this frame's EQ (and TILT), log2 of its gain, 20 Hz .. 20.5 kHz */
@@ -179,6 +191,7 @@ typedef struct {
     uint32_t units, units_frame, units_est;   /* work done: this step, this frame, the estimate per frame */
     uint32_t units_bound, units_peak;    /* the most this frame can take (from its parameters); the most any took */
     uint32_t frames, late;               /* frames made; frames that were not ready in time (finished at once) */
+    aet_prof_t *prof;                    /* the profile, or 0 */
     float disp_acc[AET_DISP];
     float disp[AET_DISP];                /* the last frame's spectrum by band, linear (for a screen) */
 } aet_t;

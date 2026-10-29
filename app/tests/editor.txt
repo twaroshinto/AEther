@@ -54,3 +54,15 @@ tx 7D 41 45 16
 expect rx_cmd 23
 key 7 up
 expect late 0
+# the debug: its summary, its log, zeroed
+key 7 down 100
+wait 1000
+tx 7D 41 45 1D 00
+expect rx_cmd 30
+expect rx5 0
+tx 7D 41 45 1D 02
+expect rx_cmd 30
+expect rx5 2
+tx 7D 41 45 1F
+expect rx_cmd 25
+key 7 up

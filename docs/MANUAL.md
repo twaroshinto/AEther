@@ -539,6 +539,11 @@ computer; the browser asks for MIDI access with SysEx):
    into the FM-1's flash and shows in the PRESETS list (after the 31 factory ones). **Save settings** does what
    SAVE does on the FM-1.
 
+**Debug** (at the bottom of the editor): while it is open the FM-1 reports, once a second, how long each audio
+render takes (the engine, the source, the modulation), which stages of the engine take the time, and a log of the
+renders that went wrong (over 80 % of their time, a late frame, an xrun), each with what was running. If the sound
+glitches, open it, play until it happens, press **Copy report** and send the text with the bug report.
+
 Double-click a slider to get its default back. With no FM-1 connected the editor is a preview and sends nothing.
 
 ## Your own sample

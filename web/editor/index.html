@@ -100,6 +100,17 @@ td.meter { width: 70px; }
 .store .two { display: flex; gap: 6px; }
 .store .two > * { flex: 1; min-width: 0; }
 .note { font-size: 12px; color: var(--dim); }
+#dbg summary { cursor: pointer; list-style-position: inside; }
+.dbgbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.hist { display: flex; align-items: flex-end; gap: 3px; height: 60px; margin: 10px 0; }
+.hist div { flex: 1; background: var(--accent); min-height: 1px; border-radius: 2px 2px 0 0; position: relative; }
+.hist div.hot { background: var(--bad); }
+.hist span { position: absolute; bottom: -16px; left: 0; right: 0; text-align: center; font-size: 10px; color: var(--dim); }
+.dbgcols { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 16px; margin-top: 22px; }
+@media (max-width: 900px) { .dbgcols { grid-template-columns: 1fr; } }
+.dbgcols td, .dbgcols th { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dbgcols tr.bad td { color: var(--bad); }
+.dbgcols { overflow-x: auto; }
 .disclaimer { font-size: 12px; color: var(--dim); border-top: 1px solid var(--line); padding: 12px 16px;
   max-width: 1600px; margin: 0 auto; }
 #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--panel);
@@ -159,6 +170,21 @@ td.meter { width: 70px; }
       <h2 data-t="matrix">Modulation matrix</h2>
       <table id="matrix"></table>
     </section>
+    <section class="card">
+      <details id="dbg">
+        <summary><h2 data-t="debug" style="display:inline">Debug: what the render costs</h2></summary>
+        <p class="note" data-t="dbgnote">While this is open the FM-1 reports, once a second, how long each audio render
+          takes and what was running when one went wrong. Play until it glitches, then Copy report and send it.</p>
+        <div class="dbgbar"><button id="dbgcopy" data-t="dbgcopy">Copy report</button>
+          <button id="dbgreset" data-t="dbgreset">Reset counts</button> <span id="dbgsay" class="note"></span></div>
+        <div id="dbgsum" class="stat"></div>
+        <div id="dbghist" class="hist"></div>
+        <div class="dbgcols">
+          <table id="dbgstages"></table>
+          <table id="dbglog"></table>
+        </div>
+      </details>
+    </section>
   </div>
 </main>
 
@@ -197,6 +223,9 @@ const TEXT = {
     hint0: "Play the FM-1: every knob here acts at once. Pink marks show where modulation moves a parameter now.",
     hintstatic: "The sound stands still. Try SEQ → EVOLVE: DEPTH, DRIFT, or a VARIANT: slow motion is AEther's best part.",
     src: "source", dst: "destination", amt: "amount", now: "now",
+    debug: "Debug: what the render costs", dbgcopy: "Copy report", dbgreset: "Reset counts", copied: "Copied.",
+    dbgnote: "While this is open the FM-1 reports, once a second, how long each audio render takes and what was " +
+      "running when one went wrong. Play until it glitches, then Copy report and send it.",
   },
   pl: {
     connect: "Połącz", disconnect: "Rozłącz", source: "Źródło", presets: "Presety", keep: "Zachowaj w FM-1",
@@ -222,6 +251,9 @@ const TEXT = {
     hint0: "Graj na FM-1: każde pokrętło tutaj działa od razu. Różowe znaczniki pokazują, gdzie modulacja przesuwa teraz parametr.",
     hintstatic: "Brzmienie stoi w miejscu. Spróbuj SEQ → EVOLVE: DEPTH, DRIFT albo VARIANT: powolny ruch to najlepsza strona AEthera.",
     src: "źródło", dst: "cel", amt: "ilość", now: "teraz",
+    debug: "Debug: ile kosztuje renderowanie", dbgcopy: "Kopiuj raport", dbgreset: "Wyzeruj liczniki", copied: "Skopiowano.",
+    dbgnote: "Gdy to jest otwarte, FM-1 raz na sekundę podaje, ile trwa każde renderowanie dźwięku i co działało, gdy " +
+      "coś poszło nie tak. Graj aż do glitcha, potem Kopiuj raport i wyślij go.",
   },
 };
 let lang = "en";                         /* English first; PL by the button (remembered) */
@@ -316,6 +348,7 @@ async function connect() {
   if (M && S.np !== M.np) toast(t("mismatch", M.version, S.version));
   texts(); renderAll();
   poll();
+  if ($("dbg").open) pollDebug();
 }
 function disconnect() {
   if (inp) inp.onmidimessage = null;
@@ -665,6 +698,105 @@ function drawSpec() {
   }
 }
 window.addEventListener("resize", drawSpec);
+
+/* ----------------------------------------------------------------- debug --- */
+/* SysEx 1D page -> 1E (app/app.c, "the editor"): numbers 7 bits a byte, low first */
+const ST_NAME = ["WIN", "LOAD", "AREV", "AFFT", "MAG", "SBR1", "SBR2", "SPR1", "SPR2", "CLEAR", "VOICE", "PHASE",
+  "SREV", "SFFT", "DONE"];
+const PROF_NAME = [...ST_NAME.slice(0, 14), "SWAP", "LATE"];
+let DBG = null;
+function reader(b) {
+  let k = 0;
+  return { n(bytes) { let v = 0; for (let i = 0; i < bytes; i++) v += b[k++] * 2 ** (7 * i); return v; }, b() { return b[k++]; } };
+}
+async function fetchDebug() {
+  const b0 = await ask(0x1D, [0], 0x1E, 1500);
+  if (!b0 || b0[0] !== 0) return null;
+  const r = reader(b0.slice(1)), d = {};
+  d.budget = r.n(3); d.renders = r.n(4); d.avg = r.n(3); d.max = r.n(3);
+  d.hist = []; for (let i = 0; i < 11; i++) d.hist.push(r.n(4));
+  d.xruns = r.n(3); d.late = r.n(3); d.slow = r.n(3); d.engMax = r.n(3); d.srcMax = r.n(3); d.modMax = r.n(3);
+  d.stores = r.n(3); d.uptime = r.n(4); d.size = r.b(); d.voices = r.b(); d.shed = r.b(); d.slot = r.b(); d.events = r.n(3);
+  d.stages = PROF_NAME.map((name) => ({ name, total: r.n(5), max: r.n(3), n: r.n(4) }));
+  d.log = [];
+  for (const page of [1, 2]) {
+    const b = await ask(0x1D, [page], 0x1E, 1500);
+    if (!b || b[0] !== page) continue;
+    const q = reader(b.slice(1));
+    for (let i = 0; i < 8; i++) {
+      const e = { used: q.b(), ms: q.n(5), us: q.n(3), eng: q.n(3), src: q.n(3), mod: q.n(3), kind: q.b(), st0: q.b(),
+        st1: q.b(), voices: q.b(), slot: q.b(), size: q.b(), shed: q.b(), flags: q.b(), store: q.n(3), xruns: q.n(3) };
+      if (e.used) d.log.push(e);
+    }
+  }
+  return d;
+}
+const kindText = (k) => [k & 1 ? "SLOW" : "", k & 2 ? "LATE" : "", k & 4 ? "XRUN" : ""].filter(Boolean).join("+");
+const sizeText = (v) => (M && M.params[M.ids.P_SIZE] ? M.params[M.ids.P_SIZE].text[v] : String(v));
+const slotText = (v) => (M && M.slots[v] ? M.slots[v].name : String(v));
+function renderDebug() {
+  const d = DBG;
+  if (!d) return;
+  const pc = (us) => Math.round((us / d.budget) * 100);
+  $("dbgsum").innerHTML = [
+    ["renders", d.renders], ["budget", d.budget + " µs"], ["avg", `${d.avg} µs (${pc(d.avg)}%)`],
+    ["max", `${d.max} µs (${pc(d.max)}%)`], ["over 80%", d.slow], ["late frames", d.late], ["xruns", d.xruns],
+    ["flash writes", d.stores], ["engine max", d.engMax + " µs"], ["source max", d.srcMax + " µs"],
+    ["modulation max", d.modMax + " µs"], ["voices", d.voices], ["shed", d.shed],
+  ].map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join("");
+  const hmax = Math.max(1, ...d.hist);
+  $("dbghist").innerHTML = d.hist.map((h, i) => `<div class="${i >= 8 ? "hot" : ""}" title="${i * 10}%${i < 10 ? "–" + (i * 10 + 10) + "%" : "+"}: ${h}"` +
+    ` style="height:${h ? Math.max(2, (Math.log(1 + h) / Math.log(1 + hmax)) * 100) : 0}%"><span>${i * 10}</span></div>`).join("");
+  const all = d.stages.reduce((a, s) => a + s.total, 0) || 1;
+  $("dbgstages").innerHTML = "<tr><th>stage</th><th>share</th><th>max µs</th><th>avg µs</th></tr>" +
+    d.stages.filter((s) => s.n).map((s) => `<tr class="${s.max > d.budget * 0.5 ? "bad" : ""}"><td>${s.name}</td>` +
+      `<td>${((s.total / all) * 100).toFixed(1)}%</td><td>${s.max}</td><td>${(s.total / s.n).toFixed(1)}</td></tr>`).join("");
+  $("dbglog").innerHTML = "<tr><th>ago</th><th>what</th><th>µs</th><th>eng/src/mod</th><th>stage</th><th>voices</th>" +
+    "<th>source</th><th>size</th><th>flash</th></tr>" + d.log.slice().reverse().map((e) =>
+    `<tr class="${e.kind & 6 ? "bad" : ""}"><td>${((d.uptime - e.ms) / 1000).toFixed(1)} s</td><td>${kindText(e.kind)}</td>` +
+    `<td>${e.us} (${pc(e.us)}%)</td><td>${e.eng}/${e.src}/${e.mod}</td><td>${ST_NAME[e.st0] || e.st0}→${ST_NAME[e.st1] || e.st1}</td>` +
+    `<td>${e.voices}</td><td>${slotText(e.slot)}</td><td>${sizeText(e.size)}</td>` +
+    `<td>${e.store === 65535 ? "–" : e.store + " ms ago"}</td></tr>`).join("");
+}
+function debugReport() {
+  const d = DBG;
+  if (!d) return "";
+  const L = [`AEther debug report, ${new Date().toISOString()}`, `firmware ${S ? S.version : "?"}, preset ${S ? S.name : "?"}, ` +
+    `source ${slotText(d.slot)}, size ${sizeText(d.size)}, voices ${d.voices}, shed ${d.shed}, uptime ${(d.uptime / 1000).toFixed(0)} s`,
+    `renders ${d.renders}, budget ${d.budget} us, avg ${d.avg} us, max ${d.max} us, over 80% ${d.slow}, late ${d.late}, ` +
+    `xruns ${d.xruns}, flash writes ${d.stores}`,
+    `max: engine ${d.engMax} us, source ${d.srcMax} us, modulation ${d.modMax} us`,
+    `load histogram (10% steps): ${d.hist.join(" ")}`, "stages (total us / max us / count):"];
+  for (const s of d.stages) if (s.n) L.push(`  ${s.name.padEnd(6)} ${String(s.total).padStart(12)} ${String(s.max).padStart(7)} ${s.n}`);
+  L.push("log (ms, kind, us, eng/src/mod, stage, voices, source, size, shed, flags, flash ago, xruns):");
+  for (const e of d.log) L.push(`  ${e.ms} ${kindText(e.kind)} ${e.us} ${e.eng}/${e.src}/${e.mod} ${ST_NAME[e.st0]}->${ST_NAME[e.st1]} ` +
+    `${e.voices} ${slotText(e.slot)} ${sizeText(e.size)} ${e.shed} ${e.flags} ${e.store} ${e.xruns}`);
+  return L.join("\n");
+}
+let dbgPolling = false;
+async function pollDebug() {
+  if (dbgPolling) return;
+  dbgPolling = true;
+  while (out && $("dbg").open) {
+    const d = await fetchDebug();
+    if (d) { DBG = d; renderDebug(); }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  dbgPolling = false;
+}
+$("dbg").addEventListener("toggle", () => { if ($("dbg").open) pollDebug(); });
+$("dbgcopy").addEventListener("click", async () => {
+  const txt = debugReport();
+  if (!txt) return;
+  try { await navigator.clipboard.writeText(txt); $("dbgsay").textContent = t("copied"); }
+  catch (e) { const w = window.open("", "_blank"); if (w) { w.document.body.innerText = txt; } }
+});
+$("dbgreset").addEventListener("click", async () => {
+  if (offline) return;
+  await ask(0x1F, [], 0x19);
+  DBG = null;
+  ["dbgsum", "dbghist", "dbgstages", "dbglog"].forEach((id) => { $(id).innerHTML = ""; });
+});
 
 /* --------------------------------------------------------- keep / delete --- */
 $("save").addEventListener("click", async () => {
