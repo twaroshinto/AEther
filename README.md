@@ -162,7 +162,8 @@ artifact of every push; `main` builds the release in `VERSION` and deploys the s
 ## Installing and going back
 
 The easiest: the **[web installer](https://twaroshinto.github.io/AEther/install/)** (Chrome or Edge, the FM-1 on
-USB). From a terminal:
+USB). **When it is done, switch the FM-1 off and on again**: without a full restart after the install the sound
+can drop out. From a terminal:
 
 ```sh
 python3 base/tools/fm1_install.py app/build/aether.fwsc     # over USB-MIDI (mido + python-rtmidi)

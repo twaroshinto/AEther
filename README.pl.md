@@ -161,6 +161,10 @@ każdego pusha; tag `vX.Y` tworzy release.
 
 ## Instalacja i powrót
 
+Najprościej: **[instalator w przeglądarce](https://twaroshinto.github.io/AEther/install/)** (Chrome albo Edge, FM-1
+na USB). **Po zakończeniu wyłącz FM-1 i włącz go ponownie**: bez pełnego restartu po instalacji dźwięk może się
+przerywać. Z terminala:
+
 ```sh
 python3 base/tools/fm1_install.py app/build/aether.fwsc     # przez USB-MIDI (mido + python-rtmidi)
 ```

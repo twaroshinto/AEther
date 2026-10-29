@@ -8,7 +8,8 @@ Version {{VERSION}}.
 
 ## Install
 
-**[Install on your FM-1](install/)**: Chrome or Edge, the FM-1 on a USB cable, one button.
+**[Install on your FM-1](install/)**: Chrome or Edge, the FM-1 on a USB cable, one button. When it is done,
+**switch the FM-1 off and on again**: without a full restart the sound can drop out.
 The firmware file itself: [{{PKG}}](firmware/{{PKG}}).
 
 ## Try it first

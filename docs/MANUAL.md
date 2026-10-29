@@ -12,6 +12,16 @@ All screenshots come from the browser emulator, which runs the same code as the 
 >
 > Version v0.5, in its first runs on a real FM-1. Polska wersja: [instrukcja po polsku](MANUAL.pl.md).
 
+## Installing
+
+1. Open the [web installer](https://twaroshinto.github.io/AEther/install/) in Chrome or Edge, connect the FM-1 by
+   USB (directly to the computer) and press **Install**. Do not unplug the cable while it writes.
+2. **When it is done, restart the FM-1: switch it off and on again.** The FM-1 starts AEther by itself after the
+   install, but without a full restart the sound can drop out; after one it plays cleanly.
+
+To go back to M-VAVE's firmware, use the installer's "Back to the stock firmware", or M-VAVE's own updater,
+M-UPGRADE.
+
 ## The panel
 
 ![The FM-1 panel with numbered controls](img/manual/panel_numbered.png)

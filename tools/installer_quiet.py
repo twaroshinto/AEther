@@ -34,5 +34,11 @@ rep('if (k === "write") { $("bar").value = ((74 + a) / total) * 100; sayPct("wri
 rep('if (k === "loader") sayK("loader");', 'if (k === "loader") { $("bar").removeAttribute("value"); sayK("loader"); }')
 rep('if (k === "reboot") sayK("reboot");', 'if (k === "reboot") { $("bar").removeAttribute("value"); sayK("reboot"); }')
 rep('log(String(e && e.stack || e));', 'log(String(e && e.stack || e)); $("logbox").open = true;')   # a failure: shown
+# done: a full restart (without one the sound can drop out, seen on an FM-1)
+rep('reboot: "Restarting", done: "Done",',
+    'reboot: "Restarting", done: "Done. Now switch the FM-1 off and on again: without a full restart the sound can '
+    'drop out.",')
+rep('reboot: "再起動中", done: "完了しました",',
+    'reboot: "再起動中", done: "完了しました。FM-1 の電源を一度切って入れ直してください（再起動しないと音が途切れることがあります）。",')
 open(p, "w", encoding="utf-8").write(s)
 print("installer: quiet log, bar by the package")
