@@ -1,152 +1,154 @@
 # AEther
 
-Spektralny syntezator dla **M-VAVE FM-1**, działający na zasadzie [PaulStretcha](https://hypermammut.sourceforge.net/paulstretch/):
-długie okna, zachowane amplitudy widma, **losowe fazy** i nakładanie ramek. Z każdej nuty robi się gęsta,
-nieskończona chmura. Custom firmware na [fm1-base](https://github.com/charlesvestal/fm1-base) /
+A spectral synthesizer for the **M-VAVE FM-1** that works like [PaulStretch](https://hypermammut.sourceforge.net/paulstretch/):
+long windows, the spectrum's amplitudes kept, **random phases**, overlapping frames. Every note becomes a dense,
+endless cloud. Custom firmware on [fm1-base](https://github.com/charlesvestal/fm1-base) /
 [felucca-bsp](https://github.com/hugelton/felucca-bsp).
 
-> **⚠ Kod wygenerowany przez AI, bez żadnej gwarancji, używasz na własną odpowiedzialność.** Cały kod,
-> narzędzia, testy i dokumentację napisała sztuczna inteligencja (Claude, Anthropic). Nikt nie przejrzał ich
-> linijka po linijce, a firmware nie był uruchamiany na prawdziwym FM-1. Szczegóły w [NOTICE](NOTICE).
-> **AI-generated code, no warranty of any kind, use at your own risk** (see [NOTICE](NOTICE)).
+> **⚠ AI-generated code, no warranty of any kind, use at your own risk.** All of the code, tools, tests and
+> documentation were written by an AI (Claude, Anthropic). Nobody has reviewed them line by line. Details in
+> [NOTICE](NOTICE).
 
-> **Status: v0.5, nietestowane na sprzęcie.** Silnik i cała aplikacja przechodzą testy w symulatorze fm1-base
-> (te same źródła co firmware), a CI buduje plik `.fwsc` toolchainem JieLi. Na prawdziwym FM-1 jeszcze nie grało:
-> pierwsze uruchomienie to test, nie występ. Instalujesz na własne ryzyko.
+> **Status: v0.5, first runs on a real FM-1.** The engine and the whole app pass their tests in the fm1-base
+> simulator (the same sources as the firmware), and CI builds the `.fwsc` with the JieLi toolchain and runs it in
+> an emulator of the FM-1's processor. You install it at your own risk.
+
+Polski: [README.pl.md](README.pl.md).
 
 ![panel](docs/img/manual/panel_numbered.png)
 
-**[Instrukcja obsługi](docs/MANUAL.md)**: każda gałka, strona i preset, ze zrzutami z emulatora.
-**English:** a spectral "PaulStretch" synth for the FM-1, see the **[user manual in English](docs/MANUAL.en.md)**.
+**Site: [twaroshinto.github.io/AEther](https://twaroshinto.github.io/AEther/)**: the web installer, AEther in the
+browser, the editor and the manual.
 
-## Jak to brzmi i jak działa
+**[User manual](docs/MANUAL.md)**: every knob, page and preset, with screenshots from the emulator
+([po polsku](docs/MANUAL.pl.md)).
 
-Pięć rodzajów źródeł widma, jeden silnik:
+## What it sounds like and how it works
 
-- **Sample** (16 wbudowanych + USER): sample skanowany bardzo powoli (STRETCH od 1x do ∞), czyli PaulStretch
-  wprost. Wbudowane są syntetyzowane przy budowaniu (`app/tools/gen_source.py`), a własne wgrywasz po USB-MIDI.
-  Klawisz przesuwa widmo (C4 = oryginalna wysokość), więc jeden sample gra akordami.
-- **VA**: oscylator wirtualnie analogowy (saw → square → pulse, wolne LFO z dryfem) grający bez przerwy C4.
-  Silnik co ramkę rozmywa jego najnowsze okno i przenosi na wysokość każdego klawisza. Filtr (24 dB/okt, z
-  rezonansem) działa na widmie po zsumowaniu głosów, więc ma to samo odcięcie dla każdego klawisza: wysokie nuty
-  nie robią się ostrzejsze, a harmoniczne są lekko rozmyte w pasma jak w PADsynth.
-- **PAD**: [PADsynth](https://zynaddsubfx.sourceforge.io/doc/PADsynth/PADsynth.htm) tego samego autora: każda
-  harmoniczna nuty to gaussowskie pasmo w widmie (szerokość BAND w centach). Nie potrzebuje żadnego materiału
-  wejściowego: widmo powstaje od razu w dziedzinie częstotliwości.
-- **HARM**: generator harmonicznych rysowany wprost w widmie: liczba harmonicznych (1–64), nachylenie, balans
-  parzyste/nieparzyste, uwypuklenie lub wycięcie wokół wybranej harmonicznej, barwa zależna od dynamiki, i
-  **cztery obwiednie** (ATTACK, DECAY, SUSTAIN), każda przypisana do jednej harmonicznej albo grupy (ODD, EVEN,
-  LOW, MID, HIGH, ALL).
-- **LIVE VOX, AIR, BOW, BELL**: generatory grające na żywo (głosy z formantami, wiatr na rezonansach, struny
-  Karplusa-Stronga pod „smyczkiem”, pole dzwonów modalnych). Jak w intrach 64k: przepis zamiast danych, kilkaset
-  bajtów kodu każdy, bez pamięci na sample, bez pętli, same powoli się zmieniają.
+Five kinds of spectrum source, one engine:
 
-Do tego **matryca modulacji**: 8 slotów „źródło → cel × siła (±100 %)”. Źródła to trzy LFO (7 kształtów, w tym
-losowy i dryf, z FADE i SYNC do nuty), dwie obwiednie ADSR, dynamika, kółko modulacji (CC1), nacisk klawiszy i
-aftertouch, losowa wartość na nutę i wysokość nuty. Celów jest 27, w tym tempo innego LFO. Jedno źródło może
-poruszać kilkoma parametrami, a jeden parametr słuchać kilku źródeł.
+- **Sample** (16 built in, plus USER): a sample scanned very slowly (STRETCH from 1x to ∞): PaulStretch as such.
+  The built-in ones are synthesised at build time (`app/tools/gen_source.py`); your own goes in over USB-MIDI. The
+  key moves the spectrum (C4 is the original pitch), so one sample plays chords.
+- **VA**: a virtual analogue oscillator (saw → square → pulse, a slow LFO with drift) playing C4 all the time.
+  Each frame the engine smears its newest window and moves it to each key's pitch. The filter (24 dB/octave,
+  resonant) works on the spectrum after the voices are summed, so it has the same cutoff for every key: high
+  notes do not get brighter, and the harmonics are blurred into bands as in PADsynth.
+- **PAD**: [PADsynth](https://zynaddsubfx.sourceforge.io/doc/PADsynth/PADsynth.htm), by the same author: each
+  harmonic of the note is a Gaussian band in the spectrum (its width BAND, in cents). No input material: the
+  spectrum is made straight in the frequency domain.
+- **HARM**: harmonics drawn straight into the spectrum: how many (1–64), their slope, the even / odd balance, a
+  boost or a notch around a chosen harmonic, a tone that follows velocity, and **four envelopes** (ATTACK, DECAY,
+  SUSTAIN), each on one harmonic or a group (ODD, EVEN, LOW, MID, HIGH, ALL).
+- **LIVE VOX, AIR, BOW, BELL**: generators that play live (voices through formants, wind on resonances,
+  Karplus-Strong strings under a "bow", a field of modal bells). As in 64k intros: a recipe instead of data, a few
+  hundred bytes of code each, no sample memory, no loop, and they change slowly by themselves.
 
-| Wbudowane sample | |
+And a **modulation matrix**: 8 slots of "source → destination × amount (±100 %)". The sources are three LFOs
+(7 shapes including random and drift, with FADE and SYNC to the note), two ADSR envelopes, velocity, the mod wheel
+(CC1), key pressure and aftertouch, a random value per note and the note's pitch. There are 36 destinations,
+among them another LFO's rate and the EQ's bands. One source can move several parameters, and one parameter can
+follow several sources. **EVOLVE** (SEQ) moves the whole sound over time: every factory preset evolves slowly.
+
+| Built-in samples | |
 |---|---|
-| CHOIR, BOWED, FLUTE, BRASS, WHISPR | głosy i instrumenty z formantami: chór na samogłoskach, wiolonczela, flet z oddechem, sekcja dęta, szept |
-| PIANO, STRING, KALIMB, GLASS, GAMELN | uderzane i szarpane: fortepian (nieharmoniczność, podwójne struny), Karplus-Strong, kalimba, szkło, gamelan z ombak |
-| ORGAN, DRONE, TAPE | organy (rejestry), tanpura z brzękiem jawari, elektryczne pianino z taśmy (wow, flutter, szum) |
-| WIND, RAIN, BIRDS | wiatr, deszcz z kroplami, ptaki |
+| CHOIR, BOWED, FLUTE, BRASS, WHISPR | voices and instruments through formants: a choir on vowels, a cello, a breathy flute, a brass section, a whisper |
+| PIANO, STRING, KALIMB, GLASS, GAMELN | struck and plucked: a piano (inharmonicity, paired strings), Karplus-Strong, a kalimba, glass, a gamelan with ombak |
+| ORGAN, DRONE, TAPE | an organ (registers), a tanpura with jawari buzz, an electric piano off tape (wow, flutter, hiss) |
+| WIND, RAIN, BIRDS | wind, rain with drops, birds |
 
-Każdy ma 2,5–4 s, jest syntetyzowany w 44,1 kHz, a trzymany w **11 kHz jako IMA ADPCM + obwiednia SBR**
-(~16 KB na 3 s, razem 270 KB flasha). Pasmo powyżej 4,9 kHz silnik odbudowuje przy graniu (SBR, niżej). Jako
-WAV-y 44,1 kHz do odsłuchu lub edycji: `python3 app/tools/gen_source.py --out /tmp/s.h --wav-dir starter/` (CI
-publikuje je też jako artefakt `starter-samples`).
+Each is 2.5–4 s long, synthesised at 44.1 kHz and kept at **11 kHz as IMA ADPCM with an SBR envelope** (~16 KB
+for 3 s, 270 KB of flash in all). The engine rebuilds the band above 4.9 kHz as it plays (SBR, below). As 44.1 kHz
+WAVs to listen to or edit: `python3 app/tools/gen_source.py --out /tmp/s.h --wav-dir starter/` (CI publishes them
+too, as the `starter-samples` artifact).
 
-### SBR: mało w pamięci, pełne pasmo na wyjściu
+### SBR: little in memory, the full band out
 
-Sample może leżeć w pamięci w niskiej częstotliwości (11 albo 22 kHz), a silnik odbudowuje brakujące górne
-pasmo jak **SBR (Spectral Band Replication)** z HE-AAC. Bierze najwyższą oktawę, którą sample ma, transponuje ją
-w górę o oktawy (harmoniczne zostają harmonicznymi) i skaluje do zapisanej obwiedni: 8 pasm co 50 ms, ~170 bajtów
-na sekundę. W zwykłym kodeku słabością SBR są fazy i transjenty, ale PaulStretch i tak losuje fazy, więc tutaj
-ta metoda nie ma praktycznie wad. Test (`tests/dsp_test.c`): STRING trzymany w 11 kHz odbiega od pełnopasmowego
-oryginału w paśmie 5–16 kHz średnio o 2,0 dB z SBR, a bez SBR o 14,4 dB.
+A sample can sit in memory at a low rate (11 or 22 kHz) while the engine rebuilds the missing top band like
+**SBR (Spectral Band Replication)** in HE-AAC: it takes the sample's highest octave, moves it up by octaves
+(harmonics stay harmonics) and scales it to a stored envelope: 8 bands every 50 ms, ~170 bytes a second. In a
+codec SBR's weak points are phases and transients, but PaulStretch randomises the phases anyway, so here it has
+practically no drawback. The test (`tests/dsp_test.c`): STRING kept at 11 kHz is on average 2.0 dB from the
+full-band original over 5–16 kHz with SBR, and 14.4 dB without it.
 
-## Obsługa
+## Playing
 
-Skrót (pełna wersja w [docs/MANUAL.md](docs/MANUAL.md), po angielsku [docs/MANUAL.en.md](docs/MANUAL.en.md)):
-**ALGORITHM** wybiera rodzaj źródła (SAMPLE, LIVE, PAD, HARM, VA), **SELECT** który sample albo generator, **PRESETS** preset, **KNOB 1–4** to cztery parametry bieżącej strony. Strony są pod
-przyciskami: **EDIT** (źródło; przy HARM też TONE i HARM ENV A–D), **ENV** (AMP, MOD ENV 1–2), **LFO** (LFO 1–3,
-MATRIX), **SEQ** (EVOLVE: ruch w czasie), **FX** (COLOR), **GLO** (SETUP). Przycisk wraca na ostatnio oglądaną stronę
-swojej grupy, a kolejne naciśnięcie przechodzi dalej. **HOME** wraca na stronę główną (na niej wycisza), a
-przytrzymany pokazuje mapę przycisków. Przytrzymanie **LFO** albo **ENV** i kręcenie gałką przypisuje modulację.
-**PLAY** to HOLD, **REC** to FREEZE, **SAVE** zapisuje. MIDI: nuty, CC64 sustain, CC1 i aftertouch jako źródła
-matrycy (WHEEL, PRESSURE), CC71 SPREAD, CC74 TILT.
+In short (all of it in [docs/MANUAL.md](docs/MANUAL.md)): **ALGORITHM** picks the kind of source (SAMPLE, LIVE,
+PAD, HARM, VA), **SELECT** which sample or generator, **PRESETS** a preset, **KNOB 1–4** are the current page's four
+parameters. The pages are under the buttons: **EDIT** (the source; with HARM also TONE and HARM ENV A–D), **ENV**
+(AMP, MOD ENV 1–2), **LFO** (LFO 1–3, MATRIX), **SEQ** (EVOLVE: motion over time), **FX** (COLOR, EQ 1–3), **GLO**
+(SETUP). A button brings back the page last seen in its group, and the next press steps on. **HOME** goes back to
+the main page (on it, silences), and held shows the buttons' map. **LFO** or **ENV** held while turning a knob
+routes modulation to it. **PLAY** is HOLD, **REC** is FREEZE, **SAVE** saves. MIDI: notes, CC64 sustain, CC1 and
+aftertouch as matrix sources (WHEEL, PRESSURE), CC71 SPREAD, CC74 TILT.
 
-## Moc obliczeniowa i drugi rdzeń
+## Processing power and the second core
 
-Silnik dzieli pracę każdej ramki na małe kroki rozłożone na kolejne bloki audio, więc nawet przy ośmiu głosach
-żaden blok nie dostaje całej ramki naraz. Widma HARM i PAD są rysowane z tablicy zamiast `expf`, a harmoniczne
-cichsze niż −120 dB są pomijane. Na hoście skróciło to rysowanie HARM o ~45 %, a PAD o ~30 %.
+The engine splits each frame's work into small steps spread over the audio blocks, each step weighted by what it
+costs, so every block gets the same share and no block gets a whole frame. The analysis FFT is a real FFT (half
+the work), the FFT's first stages need no multiplies, and the random phases take no branches. `tests/bench.c`
+shows where a frame's time goes, stage by stage. The HARM and PAD spectra are drawn from a table instead of `expf`,
+and harmonics below −120 dB are skipped.
 
-**Bezpiecznik przeciążenia** (zawsze włączony): gdy blok audio zajmuje ponad 90 % czasu, AEther wyłącza SUB i
-SHIMMER, a potem zmniejsza liczbę głosów, nawet do dwóch. Po trzech sekundach spokoju wraca krok po kroku.
+**Overload guard** (always on): when an audio block takes over 90 % of its time, AEther drops SUB and SHIMMER,
+then voices, down to two. After three quiet seconds it comes back step by step.
 
-**Drugi rdzeń** (SETUP → 2ND CORE, **eksperymentalny**, domyślnie wyłączony): rdzeń 1 maluje widma połowy głosów,
-podczas gdy rdzeń 0 czeka w przerwaniu audio. Rdzeń startuje tylko przy włączeniu zasilania. Każde zadanie ma
-słowo kontrolne, a spóźniona albo błędna odpowiedź wyłącza rdzeń do wyłączenia zasilania (dźwięk gra dalej na
-jednym). Działanie sprawdzone tylko w testach na hoście (wynik identyczny jak na jednym rdzeniu); na urządzeniu
-jeszcze nie.
+**Second core** (SETUP → 2ND CORE, **experimental**, off by default): core 1 paints half the voices' spectra while
+core 0 waits in the audio interrupt. The core starts only at power-on. Each job carries a check word, and a late
+or wrong answer turns the core off until power-off (the sound goes on, on one). Checked only in host tests (the
+same result as one core); not yet on the device.
 
-## Emulator w przeglądarce
+## In the browser
 
-Cały firmware (panel, ekran, dźwięk) działa też w przeglądarce: ten sam kod, skompilowany do WebAssembly przez
-Emscripten i grany w AudioWorklet (emulator z fm1-base). Klawiatura komputera: `Q`–`I` i `A`–`K` to białe
-klawisze, cyfry to czarne, `Z`/`X` zmieniają oktawę, `P` to HOLD, `O` to FREEZE. Shift-klik trzyma klawisz
-(akordy myszką).
+**The emulator.** The whole firmware (panel, screen, sound) runs in the browser too: the same code, compiled to
+WebAssembly with Emscripten and played in an AudioWorklet (fm1-base's emulator). The computer keyboard: `Q`–`I`
+and `A`–`K` are the white keys, digits the black ones, `Z`/`X` change the octave, `P` is HOLD, `O` FREEZE.
+Shift-click holds a key (chords with the mouse).
 
 ```sh
-./build.sh --web                                  # app/build/emu/ (wymaga emcc)
+./build.sh --web                                  # app/build/emu/ (needs emcc)
 cd app/build/emu && python3 -m http.server 8000   # http://localhost:8000
 ```
 
-CI buduje go przy każdym pushu (artefakt `aether-emulator`).
+**The editor.** `web/editor/` (on the site: **editor/**) connects to an FM-1 running AEther over USB-MIDI (Web
+MIDI with SysEx: Chrome, Edge, Opera). It shows every page and parameter at once, the spectrum with the EQ curve,
+the modulation matrix with its sources' values as they are, and where modulation moves each parameter right now.
+A knob turned on the FM-1 shows on the page at once, and the other way round. A sound can be stored on the FM-1
+as one of 16 user presets (it shows in the PRESETS list on the device too), or as the settings for the next
+power-on. Without an FM-1 the page is a preview. The protocol: the "the editor" comment in `app/app.c`; the
+parameter map (`params.json`) comes from the host build (`app/tests/params.txt`), so it always matches the
+firmware.
 
-## Edytor w przeglądarce
+The user presets take two flash sectors below the panel's settings, so the area for your own sample is 270 KB
+(23 s rather than 24 s).
 
-`web/editor/` (na stronie: **editor/**) łączy się z FM-1, na którym działa AEther, przez USB-MIDI (Web MIDI z
-SysEx: Chrome, Edge, Opera). Pokazuje naraz wszystkie strony i parametry, widmo z krzywą EQ, matrycę modulacji z
-bieżącymi wartościami źródeł i to, gdzie modulacja przesuwa każdy parametr w tej chwili. Pokrętło na FM-1 od razu
-widać na stronie i odwrotnie. Brzmienie można zapisać w FM-1 jako jeden z 16 presetów użytkownika (pojawia się
-też na liście PRESETS w urządzeniu) albo jako ustawienia na następne włączenie. Bez FM-1 strona działa jako
-podgląd. Protokół: komentarz „the editor” w `app/app.c`; mapa parametrów (`params.json`) powstaje z buildu hosta
-(`app/tests/params.txt`), więc zawsze zgadza się z firmware'em.
-
-Presety użytkownika zajmują dwa sektory flash pod ustawieniami panelu, więc obszar na własny sample zmalał do
-270 KB (23 s zamiast 24 s).
-
-## Własny sample
+## Your own sample
 
 ```sh
 pip install numpy mido python-rtmidi
-python3 tools/aether_load.py moj_dzwiek.wav                 # mono, 22,05 kHz, ADPCM + SBR: do 23 s
-python3 tools/aether_load.py moj_dzwiek.wav --rate 11025    # 4,9 kHz w pamięci, reszta z SBR: do 47 s
-python3 tools/aether_load.py moj_dzwiek.wav --pcm16         # 16 bit bez szumu ADPCM: do 6,3 s
-python3 tools/aether_load.py moj_dzwiek.wav --rate 44100    # pełne pasmo, bez SBR: do 12 s (3,1 s z --pcm16)
-python3 tools/aether_load.py dlugi.wav --start 12 --secs 5  # fragment
-python3 tools/aether_load.py moj_dzwiek.wav --syx out.syx   # plik .syx dla SysEx Librarian / MIDI-OX
+python3 tools/aether_load.py my_sound.wav                 # mono, 22.05 kHz, ADPCM + SBR: up to 23 s
+python3 tools/aether_load.py my_sound.wav --rate 11025    # 4.9 kHz in memory, the rest from SBR: up to 47 s
+python3 tools/aether_load.py my_sound.wav --pcm16         # 16-bit, no ADPCM noise: up to 6.1 s
+python3 tools/aether_load.py my_sound.wav --rate 44100    # the full band, no SBR: up to 12 s (3 s with --pcm16)
+python3 tools/aether_load.py long.wav --start 12 --secs 5 # a part
+python3 tools/aether_load.py my_sound.wav --syx out.syx   # a .syx file for SysEx Librarian / MIDI-OX
 ```
 
-Sample trafia do flasha (przetrwa wyłączenie) i od razu staje się źródłem USER. ADPCM ma odstęp sygnału od szumu
-ok. 27–36 dB: po rozmyciu fazy szum kwantyzacji zamienia się w cichy „oddech” pod chmurą, co zwykle nie
-przeszkadza. Do czystych, cichych materiałów użyj `--pcm16`. Przerwane wgrywanie niczego nie
-psuje: nagłówek jest kasowany na początku i zapisywany dopiero po sprawdzeniu CRC.
+The sample goes into the flash (it survives power-off) and becomes the USER source at once. ADPCM's signal to
+noise is about 27–36 dB: once the phases are smeared, the quantisation noise turns into a quiet "breath" under the
+cloud, which rarely matters. For clean, quiet material use `--pcm16`. An interrupted load breaks nothing: the
+header is erased first and written only after the CRC checks out.
 
-## Budowanie
+## Building
 
 ```sh
 git clone --recursive https://github.com/twaroshinto/AEther && cd AEther
-sh tests/run.sh          # testy silnika + cała aplikacja w symulatorze (cc, python3, Pillow, numpy)
-./build.sh --host        # sam symulator: app/build/host/aether_host SKRYPT KATALOG
-./build.sh               # firmware: app/build/aether.fwsc
+sh tests/run.sh          # the engine's tests + the whole app in the simulator (cc, python3, Pillow, numpy)
+./build.sh --host        # the simulator alone: app/build/host/aether_host SCRIPT DIR
+./build.sh               # the firmware: app/build/aether.fwsc
 ```
 
-Firmware wymaga toolchaina JieLi (Linux x86-64) i trzech plików z SDK AC79:
+The firmware needs the JieLi toolchain (Linux x86-64) and three files from the AC79 SDK:
 
 ```sh
 sh base/tools/get_toolchain.sh ~/.jieli
@@ -154,41 +156,48 @@ sh base/bsp/tools/get_sdk.sh ~/.jieli/ac79-sdk
 JIELI_TOOLCHAIN=~/.jieli/toolchain AC79_SDK=~/.jieli/ac79-sdk ./build.sh
 ```
 
-Najprościej: **GitHub Actions** (`.github/workflows/build.yml`) robi to samo i wystawia `aether.fwsc` jako artefakt
-każdego pusha; tag `vX.Y` tworzy release.
+The simplest: **GitHub Actions** (`.github/workflows/build.yml`) does the same and offers `aether.fwsc` as an
+artifact of every push; `main` builds the release in `VERSION` and deploys the site, a tag `vX.Y` makes a release.
 
-## Instalacja i powrót
+## Installing and going back
+
+The easiest: the **[web installer](https://twaroshinto.github.io/AEther/install/)** (Chrome or Edge, the FM-1 on
+USB). From a terminal:
 
 ```sh
-python3 base/tools/fm1_install.py app/build/aether.fwsc     # przez USB-MIDI (mido + python-rtmidi)
+python3 base/tools/fm1_install.py app/build/aether.fwsc     # over USB-MIDI (mido + python-rtmidi)
 ```
 
-Powrót do oficjalnego firmware: updater M-VAVE (albo „Return to official” w instalatorze Felucci). Jeśli coś
-pójdzie źle, przytrzymanie **OCT− i OCT+ przez 5 s** wchodzi w tryb aktualizacji, a
-`base/bsp/tools/fm1_rescue.sh` (macOS) przywraca oryginał na FM-1, które nie startuje.
+Back to the official firmware: the installer's "Back to the stock firmware", or M-VAVE's updater. If something
+goes wrong, holding **OCT− and OCT+ for 5 s** enters update mode, and `base/bsp/tools/fm1_rescue.sh` (macOS) puts
+the original back on an FM-1 that does not start.
 
-## Struktura
+## Layout
 
-| Ścieżka | Co |
+| Path | What |
 |---|---|
-| `app/dsp/aether.c`, `aether.h` | silnik: przenośne C99, float, bez alokacji i bez libc; dekoder ADPCM |
-| `app/dsp/va.c`, `va.h` | źródło VA: oscylator polyBLEP i MOTION (filtr działa w widmie, w `aether.c`) |
-| `app/app.c`, `app/app.h` | aplikacja FM-1: panel, ekran, MIDI, presety, matryca modulacji, bezpiecznik przeciążenia, wgrywanie sampli (SysEx) |
-| `app/hw/core1.c`, `core1.S` | drugi rdzeń (eksperymentalny): start, skrzynka zadań, nadzór |
-| `app/fm1.toml` | ustawienia builda fm1-base |
-| `app/tools/gen_source.py` | generator wbudowanych sampli (przy budowaniu, bez nagrań i licencji) |
-| `app/tools/aet_adpcm.py` | koder IMA ADPCM w formacie silnika (generator i `aether_load.py`) |
-| `app/tools/aet_sbr.py` | resampling i obwiednia SBR (numpy) |
-| `app/tests/*.txt` | scenariusze symulatora: klawisze, strony, HOLD, FREEZE, MIDI, zapis, wgrywanie sampla |
-| `tests/dsp_test.c` | testy silnika: wysokość dźwięku, poziomy, cisza po release, brak spóźnionych ramek, budżet pracy |
-| `tools/aether_load.py` | wgrywanie WAV-ów po USB-MIDI |
-| `base/` | fm1-base (submoduł) |
+| `app/dsp/aether.c`, `aether.h` | the engine: portable C99, float, no allocation and no libc; the ADPCM decoder |
+| `app/dsp/va.c`, `va.h` | the VA source: a polyBLEP oscillator and MOTION (the filter works on the spectrum, in `aether.c`) |
+| `app/dsp/live.c`, `live.h` | the LIVE generators: VOX, AIR, BOW, BELL |
+| `app/app.c`, `app/app.h` | the FM-1 app: panel, screen, MIDI, presets, the matrix, the overload guard, sample loading and the editor (SysEx) |
+| `app/hw/core1.c`, `core1.S` | the second core (experimental): start, job mailbox, watch |
+| `app/fm1.toml` | fm1-base's build settings |
+| `app/tools/gen_source.py` | the built-in samples' generator (at build time, no recordings, no licences) |
+| `app/tools/aet_adpcm.py` | the IMA ADPCM coder in the engine's format (the generator and `aether_load.py`) |
+| `app/tools/aet_sbr.py` | resampling and the SBR envelope (numpy) |
+| `app/tests/*.txt` | the simulator's scenarios: keys, pages, HOLD, FREEZE, MIDI, saving, sample loading, the editor |
+| `tests/dsp_test.c` | the engine's tests: pitch, levels, silence after release, no late frames, the work budget |
+| `tests/bench.c` | what a frame costs, stage by stage |
+| `web/editor/` | the editor |
+| `tools/aether_load.py` | loading WAVs over USB-MIDI |
+| `tools/make_site.sh` | the site (GitHub Pages) |
+| `base/` | fm1-base (a submodule) |
 
-## Licencja, brak gwarancji i podziękowania
+## Licence, no warranty, thanks
 
-MPL-2.0, jak fm1-base. **Kod jest wygenerowany przez AI i udostępniony bez żadnej gwarancji (sekcje 6 i 7 MPL
-obowiązują w całości). Instalujesz go i używasz na własną odpowiedzialność**: autorzy nie odpowiadają za szkody w
-urządzeniu, danych ani słuchu. Pełna treść w [NOTICE](NOTICE). Pomysł losowych faz na długich oknach i profil PADsynth pochodzą od Nasci Octaviana Paula
-(PaulStretch, PADsynth). **Kod AEther jest napisany od zera i nie zawiera kodu PaulStretcha** (który jest na GPL).
-Platforma: fm1-base (Charles Vestal) i felucca-bsp (Leo Kuroshita, Hügelton Instruments). Projekt nieoficjalny,
-niezwiązany z M-VAVE ani JieLi.
+MPL-2.0, as fm1-base. **The code is AI-generated and offered with no warranty of any kind (the MPL's sections 6
+and 7 apply in full). You install and use it at your own risk**: the authors are not liable for damage to a
+device, data or hearing. All of it in [NOTICE](NOTICE). The idea of random phases over long windows and the
+PADsynth profile are Nasca Octavian Paul's (PaulStretch, PADsynth). **AEther's code is written from scratch and
+contains none of PaulStretch's** (which is GPL). The platform: fm1-base (Charles Vestal) and felucca-bsp (Leo
+Kuroshita, Hügelton Instruments). An unofficial project, not affiliated with M-VAVE or JieLi.

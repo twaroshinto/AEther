@@ -1,0 +1,87 @@
+/* SPDX-License-Identifier: MPL-2.0
+ * Copyright (C) 2026 fm1-aether contributors
+ * AI-generated code (Claude, Anthropic): no warranty, use at your own risk (see NOTICE).
+ * AEther's one look, over every page of the site (tools/site_theme.py links it last, so it wins): the colours of
+ * fm1-base's emulator and installer (cream ground, brown ink, the coral of a lit button), the screen's amber and
+ * black for what plays, and the panel's type, Barlow Semi Condensed, for headings and labels. Light and dark. */
+:root {
+  --ground: #faf4e8; --card: #fffaf1; --sheet: #f1e8d8; --rule: #e6dccb;
+  --ink: #48392f; --muted: #6e5c4b;
+  --accent: #b84a1e; --accent-t: #f6d9c8; --on-accent: #fff;
+  --amber: #a8620f;                      /* the screen's amber as text on the cream: 4.5:1 */
+  --screen: #0b0b0c; --screen-amber: #ffb846; --screen-dim: #4a4a52;
+  --device: #232428;
+  --bad: #a3271b; --focus: #1f6fd1;
+  --font: "Barlow", "Helvetica Neue", Arial, sans-serif;
+  --font-head: "Barlow Semi Condensed", "Barlow", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #1c1814; --card: #26201b; --sheet: #2e2721; --rule: #3a322a;
+    --ink: #f2e8d8; --muted: #b3a28e;
+    --accent: #f28a5a; --accent-t: #4a2a1a; --on-accent: #2a140a;
+    --amber: #ffb846; --bad: #ff8a73; --focus: #79adff; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #1c1814; --card: #26201b; --sheet: #2e2721; --rule: #3a322a;
+  --ink: #f2e8d8; --muted: #b3a28e;
+  --accent: #f28a5a; --accent-t: #4a2a1a; --on-accent: #2a140a;
+  --amber: #ffb846; --bad: #ff8a73; --focus: #79adff; color-scheme: dark;
+}
+
+/* ---- the bar of links, the same on every page (51 px: what sticks below it starts there) */
+:root:has(.ae-bar) { --bar-h: 51px; }
+.ae-bar { position: sticky; top: 0; z-index: 20; background: var(--device); color: #e8e2d8; display: block;
+  max-width: none; margin: 0; border-bottom: 3px solid var(--screen-amber); font-family: var(--font-head); }
+body:has(> .page) > .ae-bar, body:has(#device) > .ae-bar { margin: 0 -16px; }   /* (those bodies' 16 px gutter) */
+.ae-bar .in { max-width: 1100px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center;
+  gap: 4px 18px; flex-wrap: wrap; min-height: 48px; }
+.ae-bar .mark { font-weight: 700; font-size: 20px; letter-spacing: .08em; color: #fff; text-decoration: none;
+  display: flex; align-items: center; gap: 8px; margin-right: 8px; }
+.ae-bar .mark i { width: 10px; height: 10px; border-radius: 50%; background: var(--screen-amber);
+  box-shadow: 0 0 8px var(--screen-amber); }
+.ae-bar nav { display: flex; flex-wrap: wrap; gap: 2px 4px; margin: 0; }
+.ae-bar nav a { color: #cfc6b8; text-decoration: none; font-weight: 600; font-size: 15px; letter-spacing: .06em;
+  text-transform: uppercase; padding: 6px 10px; border-radius: 6px; background: none; }
+.ae-bar nav a:hover { color: #fff; background: #34353a; }
+.ae-bar nav a[aria-current="page"] { color: #2a140a; background: #f28a5a; }
+.ae-bar .grow { flex: 1; }
+.ae-bar .src { font-size: 14px; letter-spacing: .04em; }
+@media (max-width: 560px) { .ae-bar .grow, .ae-bar .src { display: none; } .ae-bar nav a { padding: 6px 7px; font-size: 14px; } }
+@media (max-width: 900px) { .ae-bar { position: static; } :root:has(.ae-bar) { --bar-h: 0px; } }   /* (it wraps there) */
+
+/* ---- the front page and the manuals (fm1-base's make_site.py / manual_html.py: paper and ink) */
+body { font-family: var(--font); }
+:root { --paper: var(--ground); --hot: var(--accent); --hot-t: var(--accent-t); --hot-ink: var(--accent);
+  --cool: var(--screen-amber); --cool-t: var(--sheet); }
+body:has(> .page) { background: var(--ground); color: var(--ink); padding-block: 0 64px; }
+.page { padding-top: 32px; }
+.page h1, .page h2, .page h3, .page th { font-family: var(--font-head); }
+.page h1 { font-size: 2.6rem; letter-spacing: .01em; }
+.page h2 { text-transform: uppercase; letter-spacing: .06em; font-size: 1.35rem; border-top: 2px solid var(--ink); }
+.page h3 { color: var(--accent); letter-spacing: .02em; }
+.page a { color: var(--ink); text-decoration-color: var(--accent); }
+.page a.home { display: none; }        /* (the bar has it) */
+.page .callout { background: var(--sheet); border-left-color: var(--screen-amber); color: var(--ink); }
+.page code, .page pre { background: var(--sheet); color: var(--ink); }
+.page img { border-radius: 10px; }
+.page th { text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.page th, .page td { border-bottom-color: var(--rule); }
+
+/* ---- the installer (fm1-base's web/installer.html) */
+body:has(#go) { font-family: var(--font); --bg: var(--ground); --fg: var(--ink); --dim: var(--muted); }
+body:has(#go) main { padding-top: 32px; }
+body:has(#go) h1, body:has(#go) h2 { font-family: var(--font-head); letter-spacing: .02em; }
+body:has(#go) h1 { font-size: 2.2rem; }
+body:has(#go) h2 { text-transform: uppercase; letter-spacing: .06em; }
+body:has(#go) button:not(.lang) { font-family: var(--font-head); font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; border-radius: 8px; padding: 10px 24px; }
+body:has(#go) progress { height: 10px; accent-color: var(--accent); }
+body:has(#go) details summary { cursor: pointer; color: var(--muted); }
+
+/* ---- the emulator (fm1-base's web/emu): its own header's title is the bar's */
+body:has(#device) > header:not(.ae-bar) h1 { display: none; }
+body:has(#device) { padding-block: 0 48px; }
+body:has(#device) > header:not(.ae-bar) { margin-top: 20px; }

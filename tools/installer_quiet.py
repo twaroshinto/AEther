@@ -20,7 +20,7 @@ def rep(a, b):
 
 
 rep('<pre id="log"></pre>',
-    '<details id="logbox"><summary class="small">Details / Szczegóły</summary><pre id="log"></pre></details>')
+    '<details id="logbox"><summary class="small">Details</summary><pre id="log"></pre></details>')
 rep('const log = (t) => { $("log").textContent += t + "\\n"; };',
     'const LOG = [];\n'
     'const log = (t) => { LOG.push(t); if (LOG.length > 300) LOG.splice(0, LOG.length - 300);\n'
