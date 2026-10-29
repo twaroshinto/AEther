@@ -18,6 +18,7 @@ cp "$ROOT/docs/MANUAL.md" "$ROOT/app/docs/MANUAL.md"
 cp -r "$ROOT/docs/img" "$ROOT/app/docs/img"
 "$PY" "$ROOT/base/tools/make_site.py" "$ROOT/app" "$PKG" "$V" "$OUT"
 rm -rf "$ROOT/app/docs"
+"$PY" "$ROOT/tools/installer_quiet.py" "$OUT/install/index.html"
 # the English manual beside it (its images are the same: manual/img)
 "$PY" "$ROOT/base/tools/manual_html.py" "$ROOT/docs/MANUAL.en.md" "$OUT/manual/en.html" --name AETHER \
     --repo https://github.com/twaroshinto/AEther --tagline "a PaulStretch-style spectral synthesizer for the FM-1"
