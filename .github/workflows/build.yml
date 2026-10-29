@@ -6,9 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
-# the site (GitHub Pages) is made and deployed from a release tag (vX.Y): one deployment at a time
+# the site (GitHub Pages) is made and deployed from main (VERSION) and from release tags: one deployment at a time
 concurrency:
-  group: ${{ github.ref_type == 'tag' && 'pages' || github.run_id }}
+  group: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/main') && 'pages' || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -89,7 +89,10 @@ jobs:
       - name: Build
         run: |
           export JIELI_TOOLCHAIN=~/.jieli/toolchain AC79_SDK=~/.jieli/ac79-sdk
-          if [ "${GITHUB_REF_TYPE}" = tag ]; then ./build.sh --release "${GITHUB_REF_NAME#v}"; else ./build.sh; fi
+          # a tag vX.Y: that release; main: the release of VERSION (what the site installs); elsewhere a dev build
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then ./build.sh --release "${GITHUB_REF_NAME#v}"
+          elif [ "${GITHUB_REF}" = refs/heads/main ]; then ./build.sh --release "$(cat VERSION)"
+          else ./build.sh; fi
           ls app/build
           ~/.jieli/toolchain/common/bin/objdump -t app/build/aether.elf > app/build/aether.syms || true
       - uses: actions/upload-artifact@v4
@@ -157,10 +160,10 @@ jobs:
           name: fm1-emu-run
           path: out/
 
-  # a release tag (vX.Y): the site with the web installer, the emulator, the manuals (and the editor), on GitHub
-  # Pages (Settings > Pages > Source: GitHub Actions)
+  # main (its VERSION) or a release tag (vX.Y): the site with the web installer, the emulator, the manuals and the
+  # editor, on GitHub Pages (Settings > Pages > Source: GitHub Actions)
   site:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
     needs: [firmware, emulator]
     runs-on: ubuntu-24.04
     steps:
@@ -184,7 +187,7 @@ jobs:
           if [ -f app/tests/params.txt ]; then ./build.sh --host && app/build/host/aether_host app/tests/params.txt app/build/host; fi
       - name: Site
         run: |
-          V="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then V="${GITHUB_REF_NAME#v}"; else V="$(cat VERSION)"; fi
           ls app/build app/build/emu
           sh tools/make_site.sh "$V" "app/build/aether-$V.fwsc" site
       - uses: actions/upload-pages-artifact@v3
@@ -192,7 +195,7 @@ jobs:
           path: site
 
   pages:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
     needs: site
     runs-on: ubuntu-24.04
     permissions:
