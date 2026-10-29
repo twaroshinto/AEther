@@ -10,6 +10,8 @@ o2 = ["dsp/aether.c", "dsp/va.c", "dsp/live.c"]   # the engine and the VA and li
 gen = ["tools/gen_source.py --out {gen}/aether_source.h"]   # the built-in source (generated, not committed)
 words = "words.tsv"
 ble = false                    # no Bluetooth: its RAM goes to the spectral frames
+usb_audio_out = false          # the computer does not play through the FM-1: its USB audio ran inside the render
+                               # (the engine's time); the FM-1 stays recordable over USB (usb_audio_in)
 # the site
 tagline = "a PaulStretch-style spectral synthesizer for the FM-1"
 repo = "https://github.com/twaroshinto/AEther"

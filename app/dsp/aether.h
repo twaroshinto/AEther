@@ -167,6 +167,7 @@ typedef struct {
     uint32_t par_budget, par_jobs;
     uint8_t dual, par_failed, rsv2[2];
     uint32_t n, hop, n_win;              /* the frame being built, its hop, the window's frame */
+    uint32_t fn;                         /* the FFT running: n / 2 (the analysis, a real FFT) or n (the synthesis) */
     uint32_t play_pos, play_len;
     uint8_t st, layer, src_ok, rsv;      /* the job: state, the voice's layer, the source spectrum valid */
     uint32_t i, j, h, v;                 /* the job's indices */

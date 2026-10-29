@@ -4,10 +4,11 @@
 /* AETHER's engine: see aether.h. One frame, as a job of small steps:
  *
  *   WIN    the synthesis window for a new frame length
- *   LOAD   SAMPLE: N source samples around the scan position, Hann-windowed, into the FFT buffer
- *   AREV   bit-reversal permutation             } the forward FFT
+ *   LOAD   SAMPLE: N source samples around the scan position, Hann-windowed, into the FFT buffer: real, so packed
+ *          as N / 2 complex (even samples real, odd imaginary)
+ *   AREV   bit-reversal permutation             } the forward FFT, N / 2 points
  *   AFFT   radix-2 stages                       }
- *   MAG    the magnitudes, into src
+ *   MAG    the real FFT's N / 2 + 1 bins split from it, their magnitudes into src
  *   SBR1   a low-rate sample with an envelope: the band above its Nyquist rebuilt from its top octave  } SBR
  *   SBR2   each rebuilt band scaled to the envelope's energy at the scan                             }
  *   SPR1   SPREAD: prefix sums of src           } blur: each bin the mean of a band that widens with frequency
@@ -26,6 +27,7 @@
 
 enum { S_WIN, S_LOAD, S_AREV, S_AFFT, S_MAG, S_SBR1, S_SBR2, S_SPR1, S_SPR2, S_CLEAR, S_VOICE, S_PHASE, S_SREV, S_SFFT, S_DONE };
 #define CHUNK 256u                       /* items per step */
+#define PHASE_W 4u                       /* PHASE's units a bin (it does about four times a butterfly's work) */
 #define QN (AET_NMAX / 4u)               /* the quarter sine's last index */
 #define DISP_LO_LOG2 5.321928f           /* log2(40 Hz) */
 #define DISP_SPAN_LOG2 8.643856f         /* log2(16000 / 40) */
@@ -42,6 +44,23 @@ static inline float q_sin(const float *qs, uint32_t t)
 }
 static inline float q_cos(const float *qs, uint32_t t) { return q_sin(qs, (t + QN) & (AET_NMAX - 1u)); }
 
+/* both, with no branch (a random t: a branch on it is mispredicted half the time): the quadrant picks which of
+ * qs[i], qs[QN - i] is the sine and which the cosine, and their signs */
+static inline void q_sincos(const float *qs, uint32_t t, float *s, float *c)
+{
+    uint32_t q = t / QN & 3u, i = t & (QN - 1u), odd = 0u - (q & 1u);
+    fm_bits_t a, b;
+    a.f = qs[i];                         /* sin of the angle within its quadrant */
+    b.f = qs[QN - i];                    /* its cos */
+    {
+        uint32_t x = (a.u & ~odd) | (b.u & odd), y = (b.u & ~odd) | (a.u & odd);
+        a.u = x ^ (q >> 1) << 31;        /* sin: negative in quadrants 2, 3 */
+        b.u = y ^ ((q + 1u) >> 1 & 1u) << 31;   /* cos: in 1, 2 */
+    }
+    *s = a.f;
+    *c = b.f;
+}
+
 static inline uint32_t rnd(aet_t *e)    /* xorshift32 */
 {
     uint32_t x = e->rng;
@@ -57,12 +76,12 @@ static inline float win_at(const aet_t *e, uint32_t k)   /* the sine window of t
 }
 
 /* -------------------------------------------------------------------- FFT --- */
-/* in-place complex FFT on e->work (re, im interleaved), size e->n, in steps: the permutation (Gold-Rader's running
+/* in-place complex FFT on e->work (re, im interleaved), size e->fn, in steps: the permutation (Gold-Rader's running
  * reversed counter in e->j), then the stages (e->h = half the butterfly span, e->i = butterfly) */
 static int fft_rev_step(aet_t *e)       /* 1 = done */
 {
     float *x = e->work;
-    uint32_t n = e->n, i = e->i, end = i + CHUNK < n ? i + CHUNK : n, j = e->j;
+    uint32_t n = e->fn, i = e->i, end = i + CHUNK < n ? i + CHUNK : n, j = e->j;
     for (; i < end; i++) {
         uint32_t m;
         if (i < j) {
@@ -89,18 +108,47 @@ static int fft_stage_step(aet_t *e, int inverse)   /* 1 = all stages done */
 {
     float *x = e->work;
     const float *qs = e->qs;
-    uint32_t half = e->n >> 1, h = e->h, b = e->i, end = b + CHUNK < half ? b + CHUNK : half;
+    uint32_t half = e->fn >> 1, h = e->h, b = e->i, end = b + CHUNK < half ? b + CHUNK : half;
     uint32_t tstep = AET_NMAX / (2u * h);
-    for (; b < end; b++) {
-        uint32_t jj = b & (h - 1u), i1 = ((b - jj) << 1) + jj, i2 = i1 + h, t = jj * tstep;
-        float c = q_cos(qs, t), s = inverse ? q_sin(qs, t) : -q_sin(qs, t);
-        float ar = x[2u * i2], ai = x[2u * i2 + 1u];
-        float tr = ar * c - ai * s, ti = ar * s + ai * c;
-        float ur = x[2u * i1], ui = x[2u * i1 + 1u];
-        x[2u * i1] = ur + tr;
-        x[2u * i1 + 1u] = ui + ti;
-        x[2u * i2] = ur - tr;
-        x[2u * i2 + 1u] = ui - ti;
+    float sg = inverse ? 1.0f : -1.0f;
+    if (h == 1u) {                       /* the first stage: every twiddle is 1 */
+        for (; b < end; b++) {
+            float *p = x + 4u * b, ur = p[0], ui = p[1], ar = p[2], ai = p[3];
+            p[0] = ur + ar;
+            p[1] = ui + ai;
+            p[2] = ur - ar;
+            p[3] = ui - ai;
+        }
+    } else if (h == 2u) {                /* the second: 1 and -i (forward) or i (inverse) */
+        for (; b < end; b++) {
+            uint32_t jj = b & 1u, i1 = ((b - jj) << 1) + jj;
+            float *p = x + 2u * i1, *q = p + 4;
+            float ar = q[0], ai = q[1], tr = jj ? -sg * ai : ar, ti = jj ? sg * ar : ai, ur = p[0], ui = p[1];
+            p[0] = ur + tr;
+            p[1] = ui + ti;
+            q[0] = ur - tr;
+            q[1] = ui - ti;
+        }
+    } else {                             /* t = jj tstep < NMAX / 2: sin and cos from the quarter wave, no masks */
+        for (; b < end; b++) {
+            uint32_t jj = b & (h - 1u), i1 = ((b - jj) << 1) + jj, t = jj * tstep;
+            float c, s, *p = x + 2u * i1, *q = p + 2u * h;
+            if (t < QN) {
+                s = qs[t];
+                c = qs[QN - t];
+            } else {
+                s = qs[2u * QN - t];
+                c = -qs[t - QN];
+            }
+            s *= sg;
+            {
+                float ar = q[0], ai = q[1], tr = ar * c - ai * s, ti = ar * s + ai * c, ur = p[0], ui = p[1];
+                p[0] = ur + tr;
+                p[1] = ui + ti;
+                q[0] = ur - tr;
+                q[1] = ui - ti;
+            }
+        }
     }
     e->units += end - e->i;
     e->i = end;
@@ -108,7 +156,7 @@ static int fft_stage_step(aet_t *e, int inverse)   /* 1 = all stages done */
         return 0;
     e->i = 0;
     e->h <<= 1;
-    return e->h >= e->n;
+    return e->h >= e->fn;
 }
 
 /* ----------------------------------------------------------------- frames --- */
@@ -278,11 +326,12 @@ static uint32_t bound(const aet_t *e)
     uint32_t n = e->n, half = n / 2u, lg = 0, layers = 0, v, b;
     while ((1u << lg) < n)
         lg++;
-    b = n + half * lg + half + half + 2u * CHUNK;             /* clear, phase, the inverse FFT */
+    b = n + half * lg + half + PHASE_W * half + 2u * CHUNK;   /* clear, phase, the inverse FFT */
     if (e->n_win != n)
         b += 4u * half;
     if (needs_analysis(e))
-        b += 3u * n + half * lg + half + (e->fp.spread > 0.001f ? n : 0u) + (sbr_on(e) ? 2u * n : 0u);
+        b += 2u * n + half + (half / 2u) * (lg - 1u) + 2u * half + (e->fp.spread > 0.001f ? n : 0u) +
+             (sbr_on(e) ? 2u * n : 0u);
     for (v = 0; v < AET_VOICES; v++) {
         const aet_voice_t *vc = &e->voice[v];
         float r;
@@ -468,8 +517,7 @@ static void load_step(aet_t *e)
             e->live_at = e->ring_w - n;
         for (; k < end; k++) {
             float w = win_at(e, k);
-            e->work[2u * k] = e->ring[(e->live_at + k) & (AET_NMAX - 1u)] * w * w;
-            e->work[2u * k + 1u] = 0.0f;
+            e->work[k] = e->ring[(e->live_at + k) & (AET_NMAX - 1u)] * w * w;
         }
         k = end;
     }
@@ -488,13 +536,14 @@ static void load_step(aet_t *e)
         s0 = (float)aet_sample_read(e, i0);
         s1 = (float)aet_sample_read(e, i1);
         w = win_at(e, k);
-        e->work[2u * k] = (s0 + fr * (s1 - s0)) * (1.0f / 32768.0f) * w * w;
-        e->work[2u * k + 1u] = 0.0f;
+        e->work[k] = (s0 + fr * (s1 - s0)) * (1.0f / 32768.0f) * w * w;   /* (k even: re, odd: im) */
     }
     e->units += 2u * (end - e->i);
     e->i = end;
-    if (end >= n)
+    if (end >= n) {
         enter(e, S_AREV);
+        e->fn = n / 2u;
+    }
 }
 
 void aet_live_push(aet_t *e, const float *x, uint32_t n)
@@ -505,15 +554,22 @@ void aet_live_push(aet_t *e, const float *x, uint32_t n)
     e->ring_w = w + n;
 }
 
+/* the real FFT's bin k from the N / 2-point one (Z): with Zc = conj Z[N/2 - k], X[k] = (Z[k] + Zc) / 2 +
+ * W^k (Z[k] - Zc) / 2i, W = e^(-2 pi i / N) */
 static void mag_step(aet_t *e)
 {
-    uint32_t half = e->n / 2u, k = e->i, end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u;
-    float norm = 4.0f / (float)e->n;     /* 2 / sum of the Hann window: a sine's peak bin reads its amplitude */
+    const float *z = e->work, *qs = e->qs;
+    uint32_t half = e->n / 2u, k = e->i, end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u, ts = AET_NMAX / e->n;
+    float norm = 2.0f / (float)e->n;     /* 2 / sum of the Hann window (a sine's peak bin reads its amplitude), / 2 */
     for (; k < end; k++) {
-        float re = e->work[2u * k], im = e->work[2u * k + 1u];
-        e->src[k] = fm_sqrtf(re * re + im * im) * norm;
+        uint32_t a = k < half ? k : 0u, b = k ? half - k : 0u, t = k * ts;
+        float zr = z[2u * a], zi = z[2u * a + 1u], cr = z[2u * b], ci = -z[2u * b + 1u];
+        float er = zr + cr, ei = zi + ci, dr = zr - cr, di = zi - ci;   /* 2E; Z[k] - Zc (2O = -i that) */
+        float c = q_cos(qs, t), s = -q_sin(qs, t);
+        float xr = er + c * di + s * dr, xi = ei + s * di - c * dr;
+        e->src[k] = fm_sqrtf(xr * xr + xi * xi) * norm;
     }
-    e->units += end - e->i;
+    e->units += 2u * (end - e->i);
     e->i = end;
     if (end > half) {
         e->src_ok = 1;
@@ -683,9 +739,9 @@ static void cur_start(aet_t *e, aet_cur_t *c, uint32_t first, uint32_t step, flo
 static void voice_sample_step(aet_t *e, aet_cur_t *c)
 {
     uint32_t half = e->n / 2u, k = c->i ? c->i : 1u, end = k + CHUNK < half ? k + CHUNK : half;
-    float inv = 1.0f / c->ratio, g = c->gain, *acc = c->acc;
-    for (; k < end; k++) {
-        float idx = (float)k * inv, fr;
+    float inv = 1.0f / c->ratio, g = c->gain, *acc = c->acc, idx = (float)k * inv;   /* (exact again each step) */
+    for (; k < end; k++, idx += inv) {
+        float fr;
         uint32_t i0 = (uint32_t)idx;
         if (i0 >= half) {
             end = half;
@@ -795,20 +851,75 @@ static void clear_step(aet_t *e)
     }
 }
 
-/* acc with random phases: A (left) and B (right), packed X[k] = A + iB, X[n-k] = conj(A) + i conj(B) */
+/* the spectrum's gain at bin k (TILT, the EQ, the VA's low-pass), linear */
+typedef struct {
+    float lb, tilt, t500, lp_x, lp_iq2;
+    int shaped;
+} shape_t;
+
+static void shape_init(const aet_t *e, shape_t *g)
+{
+    float binhz = (float)AET_FS / (float)e->n, rq = 0.55f + 7.5f * e->fp.lp_reso * e->fp.lp_reso;
+    g->lb = fm_log2f(binhz);
+    g->tilt = fm_clampf(e->fp.tilt, -1.0f, 1.0f);
+    g->t500 = g->lb - 8.965784f;         /* log2(bin Hz / 500) */
+    g->lp_x = e->fp.lp_hz > 0.0f ? binhz / e->fp.lp_hz : 0.0f;   /* f / fc a bin */
+    g->lp_iq2 = 1.0f / (rq * rq);
+    g->shaped = g->tilt != 0.0f || e->eq_on || g->lp_x > 0.0f;
+}
+
+static float shape_at(const aet_t *e, const shape_t *sh, float k)
+{
+    float m = 1.0f;
+    if (sh->tilt != 0.0f || e->eq_on) {  /* TILT and the EQ: one gain, in log2 */
+        float lk = fm_log2f(k), g = sh->tilt * (lk + sh->t500);
+        if (e->eq_on) {
+            float t = (lk + sh->lb - 4.321928f) * ((float)AET_EQ_TAB / 10.0f);   /* (log2 20 Hz) */
+            int32_t i = (int32_t)t;
+            if (i < 0)
+                g += e->eq_tab[0];
+            else if (i >= (int32_t)AET_EQ_TAB)
+                g += e->eq_tab[AET_EQ_TAB];
+            else
+                g += e->eq_tab[i] + (t - (float)i) * (e->eq_tab[i + 1] - e->eq_tab[i]);
+        }
+        m = fm_exp2f(g);
+    }
+    if (sh->lp_x > 0.0f) {               /* two 2-pole sections: one resonant (Q 0.55 .. 8), one Butterworth */
+        float x = sh->lp_x * k, x2 = x * x, d = (1.0f - x2) * (1.0f - x2);
+        m *= fm_rsqrtf(d + x2 * sh->lp_iq2) * fm_rsqrtf(d + 2.0f * x2);
+    }
+    return m;
+}
+
+/* the display's band b starts at this bin */
+static inline float disp_edge(float binhz, int32_t b)
+{
+    return 40.0f * fm_exp2f((float)b * (DISP_SPAN_LOG2 / (float)AET_DISP)) / binhz;
+}
+
+/* acc with random phases: A (left) and B (right), packed X[k] = A + iB, X[n-k] = conj(A) + i conj(B). The gain
+ * (TILT, EQ, low-pass) exactly on every bin up to 32, above every PH_KNOT bins with the bins between interpolated:
+ * the curve is smooth there (the low-pass's sharpest peak, Q 8, is over 20 bins wide at the shortest frame's
+ * resolution). One random number gives both phases (13 bits each). */
+#define PH_KNOT 4u
 static void phase_step(aet_t *e)
 {
     float *x = e->work;
     const float *qs = e->qs;
     uint32_t n = e->n, half = n / 2u, k = e->i, end = k + CHUNK < half + 1u ? k + CHUNK : half + 1u;
-    float binhz = (float)AET_FS / (float)n, lb = fm_log2f(binhz), tilt = fm_clampf(e->fp.tilt, -1.0f, 1.0f);
-    float t500 = lb - 8.965784f;         /* log2(bin Hz / 500) */
-    float lp_x = e->fp.lp_hz > 0.0f ? binhz / e->fp.lp_hz : 0.0f;   /* f / fc a bin */
-    float lp_iq2 = 1.0f / ((0.55f + 7.5f * e->fp.lp_reso * e->fp.lp_reso) * (0.55f + 7.5f * e->fp.lp_reso * e->fp.lp_reso));
+    uint32_t knot = 0xFFFFFFFFu;         /* the knots ga, gb are at knot, knot + PH_KNOT */
+    float binhz = (float)AET_FS / (float)n, ga = 1.0f, gb = 1.0f, gd = 0.0f, edge;
+    int32_t b;
+    shape_t sh;
+    shape_init(e, &sh);
+    b = k ? (int32_t)((fm_log2f((float)k * binhz) - DISP_LO_LOG2) * ((float)AET_DISP / DISP_SPAN_LOG2)) : -1;
+    if (b < -1)
+        b = -1;
+    edge = disp_edge(binhz, b + 1);
     for (; k < end; k++) {
-        float m, lk, ar, ai, br, bi;
-        uint32_t t1, t2, b;
-        int32_t bi_;
+        float m, ar, ai, br, bi;
+        uint32_t r, t1, t2;
         if (k == 0 || k == half) {
             x[2u * k] = x[2u * k + 1u] = 0.0f;
             continue;
@@ -818,47 +929,47 @@ static void phase_step(aet_t *e)
             x[2u * k] = x[2u * k + 1u] = x[2u * (n - k)] = x[2u * (n - k) + 1u] = 0.0f;
             continue;
         }
-        lk = fm_log2f((float)k);
-        if (tilt != 0.0f || e->eq_on) {  /* TILT and the EQ: one gain, in log2 */
-            float g = tilt * (lk + t500);
-            if (e->eq_on) {
-                float t = (lk + lb - 4.321928f) * ((float)AET_EQ_TAB / 10.0f);   /* (log2 20 Hz) */
-                int32_t i = (int32_t)t;
-                if (i < 0)
-                    g += e->eq_tab[0];
-                else if (i >= (int32_t)AET_EQ_TAB)
-                    g += e->eq_tab[AET_EQ_TAB];
-                else
-                    g += e->eq_tab[i] + (t - (float)i) * (e->eq_tab[i + 1] - e->eq_tab[i]);
+        if (sh.shaped) {
+            if (k < 32u) {
+                m *= shape_at(e, &sh, (float)k);
+            } else {
+                uint32_t kn = k & ~(PH_KNOT - 1u);
+                if (kn != knot) {        /* (the next knot's gain is this one's end: one shape_at a knot) */
+                    ga = kn == knot + PH_KNOT ? gb : shape_at(e, &sh, (float)kn);
+                    gb = shape_at(e, &sh, (float)(kn + PH_KNOT));
+                    gd = (gb - ga) * (1.0f / (float)PH_KNOT);
+                    knot = kn;
+                }
+                m *= ga + gd * (float)(k - kn);
             }
-            m *= fm_exp2f(g);
         }
-        if (lp_x > 0.0f) {               /* two 2-pole sections: one resonant (Q 0.55 .. 8), one Butterworth */
-            float x = lp_x * (float)k, x2 = x * x, d = (1.0f - x2) * (1.0f - x2);
-            m *= fm_rsqrtf(d + x2 * lp_iq2) * fm_rsqrtf(d + 2.0f * x2);
+        while ((float)k >= edge && b < (int32_t)AET_DISP) {   /* the display's bands: their edges, not a log a bin */
+            b++;
+            edge = disp_edge(binhz, b + 1);
         }
-        bi_ = (int32_t)((lk + lb - DISP_LO_LOG2) * ((float)AET_DISP / DISP_SPAN_LOG2));
-        if (bi_ >= 0 && bi_ < (int32_t)AET_DISP) {
-            b = (uint32_t)bi_;
-            if (m > e->disp_acc[b])
-                e->disp_acc[b] = m;
-        }
+        if (b >= 0 && b < (int32_t)AET_DISP && m > e->disp_acc[b])
+            e->disp_acc[b] = m;
         m *= 0.5f;                       /* the two Hermitian halves add up to m cos(...) */
-        t1 = rnd(e) & (AET_NMAX - 1u);
-        t2 = rnd(e) & (AET_NMAX - 1u);
-        ar = m * q_cos(qs, t1);
-        ai = m * q_sin(qs, t1);
-        br = m * q_cos(qs, t2);
-        bi = m * q_sin(qs, t2);
+        r = rnd(e);
+        t1 = r & (AET_NMAX - 1u);
+        t2 = r >> 19 & (AET_NMAX - 1u);
+        q_sincos(qs, t1, &ai, &ar);
+        q_sincos(qs, t2, &bi, &br);
+        ar *= m;
+        ai *= m;
+        br *= m;
+        bi *= m;
         x[2u * k] = ar - bi;
         x[2u * k + 1u] = ai + br;
         x[2u * (n - k)] = ar + bi;
         x[2u * (n - k) + 1u] = br - ai;
     }
-    e->units += end - e->i;
+    e->units += PHASE_W * (end - e->i);
     e->i = end;
-    if (end > half)
+    if (end > half) {
         enter(e, S_SREV);
+        e->fn = n;
+    }
 }
 
 static void win_step(aet_t *e)           /* sin(pi (k + 0.5) / n), the first half (the window is symmetric) */
@@ -1006,7 +1117,7 @@ void aet_render(aet_t *e, float *l, float *r, uint32_t n)
     /* this block's share of the frame's work, with a margin, so the frame is done before the play buffer is */
     uint32_t est = e->units_est > e->units_bound ? e->units_est : e->units_bound;
     /* (the frame being made must be done when the play buffer now playing runs out: its length is the time) */
-    uint32_t budget = (uint32_t)((float)est * (float)n * 1.5f / (float)e->play_len) + CHUNK;
+    uint32_t budget = (uint32_t)((float)est * (float)n * 1.25f / (float)e->play_len) + CHUNK;
     work(e, budget);
     while (i < n) {
         uint32_t take = e->play_len - e->play_pos, k;
